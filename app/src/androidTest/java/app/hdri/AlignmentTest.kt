@@ -198,10 +198,12 @@ class AlignmentTest {
     @Test
     fun nativeMergeMatchesScalarReferenceAndLosslessCheckpoints() {
         assertTrue(OpenCVLoader.initLocal())
+        // Multiple 64-row read chunks plus a partial final chunk.
+        val height = 145
         val random = Random(81)
         val bytes =
             List(5) { exposure ->
-                ByteArray(32 * 24 * 3) { i ->
+                ByteArray(32 * height * 3) { i ->
                     when (i / 3) {
                         0 -> 0
                         1 -> 255.toByte()
@@ -215,7 +217,7 @@ class AlignmentTest {
             Radiance.response().also { values ->
                 for (i in values.indices) values[i] *= if (i % 3 == 0) .8f else 1.2f
             }
-        val images = bytes.map { b -> Mat(24, 32, CvType.CV_8UC3).also { it.put(0, 0, b) } }
+        val images = bytes.map { b -> Mat(height, 32, CvType.CV_8UC3).also { it.put(0, 0, b) } }
         val file =
             File(
                 InstrumentationRegistry.getInstrumentation().targetContext.cacheDir,
@@ -230,7 +232,7 @@ class AlignmentTest {
                 result.rgb[i].toDouble(),
                 max(1e-6, abs(expected.rgb[i]) * 2e-6),
             )
-            FloatImages.write(file, 32, 24, result.rgb)
+            FloatImages.write(file, 32, height, result.rgb)
             val decoded = FloatImages.read(file)
             try {
                 val roundtrip = FloatArray(result.rgb.size)

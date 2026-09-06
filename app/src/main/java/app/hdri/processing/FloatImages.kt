@@ -30,34 +30,49 @@ internal object FloatImages {
         require(file.length() in 28..(256L * 1024 * 1024)) {
             "A float checkpoint is incomplete. Rebuild the sphere."
         }
-        val buffer = ByteBuffer.allocate(file.length().toInt()).order(ByteOrder.LITTLE_ENDIAN)
         FileInputStream(file).use { input ->
-            while (buffer.hasRemaining()) check(input.channel.read(buffer) > 0) {
-                "A float checkpoint is incomplete."
+            fun fill(buffer: ByteBuffer) {
+                while (buffer.hasRemaining()) check(input.channel.read(buffer) > 0) {
+                    "A float checkpoint is incomplete."
+                }
+                buffer.flip()
             }
-        }
-        buffer.flip()
-        require(buffer.int == MAGIC) { "The float checkpoint format is invalid." }
-        val width = buffer.int
-        val height = buffer.int
-        val channels = buffer.int
-        require(
-            width in 1..8192 &&
-                height in 1..8192 &&
-                channels == 3 &&
-                buffer.remaining().toLong() == width.toLong() * height * 12
-        ) {
-            "The float checkpoint dimensions are invalid."
-        }
-        val pixels = FloatArray(width * height * 3)
-        buffer.asFloatBuffer().get(pixels)
-        val mat = Mat(height, width, CvType.CV_32FC3)
-        try {
-            mat.put(0, 0, pixels)
-            return mat
-        } catch (e: Exception) {
-            mat.release()
-            throw e
+            val header = ByteBuffer.allocate(16).order(ByteOrder.LITTLE_ENDIAN)
+            fill(header)
+            require(header.int == MAGIC) { "The float checkpoint format is invalid." }
+            val width = header.int
+            val height = header.int
+            val channels = header.int
+            require(
+                width in 1..8192 &&
+                    height in 1..8192 &&
+                    channels == 3 &&
+                    file.length() - 16 == width.toLong() * height * 12
+            ) {
+                "The float checkpoint dimensions are invalid."
+            }
+            // Keep two bounded row buffers instead of two whole-image JVM copies.
+            // The decoded image itself lives in the native Mat/cache.
+            val rows = minOf(64, height)
+            val buffer = ByteBuffer.allocate(width * rows * 12).order(ByteOrder.LITTLE_ENDIAN)
+            val pixels = FloatArray(width * rows * 3)
+            val mat = Mat(height, width, CvType.CV_32FC3)
+            try {
+                var y = 0
+                while (y < height) {
+                    val count = width * minOf(rows, height - y) * 3
+                    buffer.clear()
+                    buffer.limit(count * 4)
+                    fill(buffer)
+                    buffer.asFloatBuffer().get(pixels, 0, count)
+                    mat.put(y, 0, if (count == pixels.size) pixels else pixels.copyOf(count))
+                    y += rows
+                }
+                return mat
+            } catch (e: Throwable) {
+                mat.release()
+                throw e
+            }
         }
     }
 }
