@@ -172,9 +172,19 @@ fun CaptureOverlay(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(leave) { Icon(Icons.Outlined.Close, "Save and leave capture") }
+                IconButton(leave) {
+                    Icon(
+                        Icons.Outlined.Close,
+                        "Save and leave capture",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
                 Column(Modifier.weight(1f)) {
-                    Text("Capture sphere", fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Capture sphere",
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontWeight = FontWeight.SemiBold,
+                    )
                     Text("AUTO CAPTURE", color = Lime, fontSize = 10.sp, letterSpacing = 1.5.sp)
                 }
                 Text(
@@ -224,6 +234,7 @@ fun CaptureOverlay(
             if (state.notice != null) Text(state.notice, color = Lime, fontSize = 12.sp)
             Text(
                 state.message,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
                 lineHeight = 25.sp,
