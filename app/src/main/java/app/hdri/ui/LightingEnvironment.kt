@@ -27,15 +27,34 @@ internal data class LightingEnvironment(
                     "The HDR environment could not be read. Rebuild this capture from its saved photos."
                 }
                 progress("Preparing reflections", .25f)
-                Imgproc.resize(source, reduced, Size(1024.0, 512.0), 0.0, 0.0, Imgproc.INTER_AREA)
-                val data = FloatArray(1024 * 512 * 3)
-                reduced.get(0, 0, data)
+                // Keep the saved panorama's detail when looking around. Only diffuse
+                // integration needs a small map; shrinking reflections also softens the viewer.
+                val width =
+                    listOf(128, 256, 512, 1024, 2048, 4096).lastOrNull { it <= source.cols() }
+                        ?: 128
+                val pixels =
+                    if (source.cols() == width) source
+                    else {
+                        Imgproc.resize(
+                            source,
+                            reduced,
+                            Size(width.toDouble(), width / 2.0),
+                            0.0,
+                            0.0,
+                            Imgproc.INTER_AREA,
+                        )
+                        reduced
+                    }
+                val data = FloatArray(width * width / 2 * 3)
+                pixels.get(0, 0, data)
+                source.release()
+                reduced.release()
                 for (i in data.indices step 3) {
                     val blue = data[i]
                     data[i] = data[i + 2]
                     data[i + 2] = blue
                 }
-                val map = LightingMap(1024, 512, data)
+                val map = LightingMap(width, width / 2, data)
                 val diffuse =
                     map.reduced(128, 64).diffuse {
                         progress("Integrating diffuse light", .35f + .6f * it)

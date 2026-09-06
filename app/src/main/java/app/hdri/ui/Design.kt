@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
@@ -27,6 +28,11 @@ fun SphereTheme(content: @Composable () -> Unit) {
             darkColorScheme(
                 primary = Lime,
                 onPrimary = Ink,
+                secondary = Lime,
+                secondaryContainer = Color(0xFF40382D),
+                onSecondaryContainer = Lime,
+                primaryContainer = Color(0xFF40382D),
+                onPrimaryContainer = Lime,
                 background = Ink,
                 surface = Ink,
                 surfaceVariant = Panel,
@@ -35,7 +41,12 @@ fun SphereTheme(content: @Composable () -> Unit) {
                 outline = Color(0xFF4B4F53),
                 error = Color(0xFFFFB4AB),
             ),
-        content = content,
+        content = {
+            CompositionLocalProvider(
+                LocalContentColor provides MaterialTheme.colorScheme.onSurface,
+                content = content,
+            )
+        },
     )
 }
 

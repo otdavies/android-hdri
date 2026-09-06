@@ -85,7 +85,12 @@ internal class SphereViewer(
             glGetProgramiv(shader, GL_LINK_STATUS, status, 0)
             check(status[0] != 0) { "Lighting renderer: ${glGetProgramInfoLog(shader)}" }
             glGenTextures(2, textures, 0)
-            listOf(environment.reflection, environment.diffuse).forEachIndexed { index, map ->
+            val limit = IntArray(1)
+            glGetIntegerv(GL_MAX_TEXTURE_SIZE, limit, 0)
+            listOf(environment.reflection, environment.diffuse).forEachIndexed { index, original ->
+                val map =
+                    if (original.width <= limit[0]) original
+                    else original.reduced(limit[0], limit[0] / 2)
                 glBindTexture(GL_TEXTURE_2D, textures[index])
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
@@ -192,6 +197,7 @@ internal class SphereViewer(
             """#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 in vec2 pos;out vec4 color;
 uniform sampler2D env;uniform sampler2D diffuseMap;
 uniform mat3 rot;uniform float aspect;uniform float gain;

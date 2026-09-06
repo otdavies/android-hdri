@@ -34,12 +34,15 @@ class LightingViewerTest {
 
     private fun fixture(name: String, directional: Boolean): File {
         val file = File(context.cacheDir, name)
-        HdrWriter(file.outputStream(), 128, 64).use { writer ->
-            for (y in 0 until 64) writer.row(
-                FloatArray(128 * 3) { i ->
+        val width = if (directional) 4096 else 128
+        val height = width / 2
+        HdrWriter(file.outputStream(), width, height).use { writer ->
+            for (y in 0 until height) writer.row(
+                FloatArray(width * 3) { i ->
                     if (!directional) floatArrayOf(5f, 3f, 2f)[i % 3]
                     else {
-                        val light = AnalyticLight.sample(Sphere.ray(i / 3 + .5, y + .5, 128, 64))
+                        val light =
+                            AnalyticLight.sample(Sphere.ray(i / 3 + .5, y + .5, width, height))
                         floatArrayOf(light.z.toFloat(), light.y.toFloat(), light.x.toFloat())[i % 3]
                     }
                 }
@@ -48,7 +51,7 @@ class LightingViewerTest {
         return file
     }
 
-    private fun pixels(view: SphereViewer): Bitmap {
+    private fun pixels(view: SphereViewer): Bitmap? {
         val image = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         val done = CountDownLatch(1)
         var result = -1
@@ -62,6 +65,10 @@ class LightingViewerTest {
             Handler(Looper.getMainLooper()),
         )
         assertTrue(done.await(10, TimeUnit.SECONDS))
+        if (result == PixelCopy.ERROR_SOURCE_NO_DATA || result == PixelCopy.ERROR_TIMEOUT) {
+            image.recycle()
+            return null
+        }
         assertEquals(PixelCopy.SUCCESS, result)
         return image
     }
@@ -98,7 +105,7 @@ class LightingViewerTest {
             // PixelCopy reads the last presented buffer. Wait for the requested exposure
             // to reach the surface instead of racing the GL thread's next buffer swap.
             rule.waitUntil(5_000) {
-                val candidate = pixels(viewer)
+                val candidate = pixels(viewer) ?: return@waitUntil false
                 val matches =
                     abs(
                         Color.red(candidate.getPixel(candidate.width / 4, candidate.height / 2)) -
@@ -107,7 +114,7 @@ class LightingViewerTest {
                 candidate.recycle()
                 matches
             }
-            val image = pixels(viewer)
+            val image = checkNotNull(pixels(viewer)) { "The presented lighting frame disappeared." }
             try {
                 for ((x, reflectance) in listOf(.25 to 1.0, .75 to .18)) {
                     val pixel = image.getPixel((image.width * x).toInt(), image.height / 2)
@@ -153,6 +160,69 @@ class LightingViewerTest {
         assertNull(error.get())
         verify(.5, true)
         file.delete()
+    }
+
+    @Test
+    fun directionalHdrProducesTheCorrectDiffuseGradientOnGpu() {
+        val w = 128
+        val h = 64
+        val rgb =
+            FloatArray(w * h * 3) { index ->
+                val y = index / 3 / w
+                (1.0 + .9 * Sphere.ray(index / 3 % w + .5, y + .5, w, h).y).toFloat()
+            }
+        val map = LightingMap(w, h, rgb)
+        val diffuse = map.diffuse()
+        // For L(w)=1+0.9*w.y, Lambertian unit-reflectance radiance is 1+0.6*n.y.
+        assertEquals(1.6, diffuse.rgb[(16 * 0 + 0) * 3].toDouble(), .01)
+        val light = LightingEnvironment(map, diffuse, 1f)
+        val ready = AtomicBoolean(false)
+        val failure = AtomicReference<String?>(null)
+        lateinit var viewer: SphereViewer
+        rule.runOnUiThread {
+            rule.activity.setContent {
+                AndroidView(
+                    factory = {
+                        SphereViewer(it, light, { ready.set(true) }, { failure.set(it) }).also {
+                            viewer = it
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        rule.waitUntil(15_000) { ready.get() || failure.get() != null }
+        assertNull(failure.get())
+        var image: Bitmap? = null
+        rule.waitUntil(5_000) {
+            image = pixels(viewer)
+            image != null
+        }
+        val frame = checkNotNull(image)
+        try {
+            val radius = min(viewer.width * .41, viewer.height * .78) / 2
+            for (ny in listOf(-.6, 0.0, .6)) {
+                val pixel =
+                    frame.getPixel(
+                        frame.width * 3 / 4,
+                        (frame.height / 2 - ny * radius).roundToInt(),
+                    )
+                val outgoing = .18 * (1 + .6 * ny)
+                val mapped = outgoing / (1 + outgoing)
+                val expected = (255 * (1.055 * mapped.pow(1 / 2.4) - .055)).roundToInt()
+                assertEquals(
+                    "Diffuse direction n.y=$ny",
+                    expected.toDouble(),
+                    Color.red(pixel).toDouble(),
+                    3.0,
+                )
+            }
+            File(verification, "lighting-gradient.png").outputStream().use {
+                frame.compress(Bitmap.CompressFormat.PNG, 100, it)
+            }
+        } finally {
+            frame.recycle()
+        }
     }
 
     @Test
