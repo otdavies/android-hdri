@@ -1,0 +1,11 @@
+{
+  "sourceCommit": "570e89114f20cc0ee03083ac75e0f2e2ad9fb8fd",
+  "runId": 34023263263,
+  "releaseTag": "v0.1.0-preview.9",
+  "apkSha256": "cbd3b3460126b3d9da1b354f6b720c854e83e5a3e90424f48f3ad68c8247d480",
+  "apkBytes": 123740305,
+  "jvmTests": 24,
+  "installedApkTests": 12,
+  "installedApkTestSeconds": 40.337,
+  "verificationArtifactSha256": "938c72d7178d0426973b50a598d2d259f5ff8b9d8007c0fd6f398ff961e23582"
+}

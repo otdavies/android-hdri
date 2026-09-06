@@ -45,4 +45,16 @@ Use a new work directory for fresh timing; subsequent runs reuse HDR checkpoints
 
 The release gate requires 24 JVM tests, Android lint and 12 tests against the exact signed APK installed twice on the API 36 emulator. New regression coverage exercises genuine feature detection under pose drift and small viewpoint offsets, subpixel bracket rotation, continuous HDR color gradients, graph-cut seams, native/scalar merge agreement and lossless high-range float checkpoints. The existing full-sphere radiometry, row/longitude continuity, cancellation/resume, metadata and UI gates remain.
 
-Release evidence will be appended after the installed-APK gate completes. Synthetic fixtures and host replay do not replace physical Pixel 8 runtime, thermal and camera calibration checks.
+### Published Preview 9
+
+[Download the signed APK](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.9/hdri-0.1.0-preview.apk). Install it over Preview 8, open the existing project, and choose **Rebuild from saved photos**.
+
+[Actions run 34023263263](https://github.com/otdavies/android-hdri/actions/runs/34023263263) built source `570e89114f20cc0ee03083ac75e0f2e2ad9fb8fd`. All 24 JVM tests, lint and 12 installed-APK tests passed; the device suite took 40.337 seconds. The same APK was installed twice, tested and published without rebuilding. The published asset's SHA-256 is `cbd3b3460126b3d9da1b354f6b720c854e83e5a3e90424f48f3ad68c8247d480` (123,740,305 bytes).
+
+The retrieved, checksum-verified device evidence records 100% synthetic sphere coverage, 8.32% median relative radiance error after one global scale fit, and 10.015 seconds of synthetic pipeline processing. Smooth-field checks measured a maximum adjacent-row error change of 0.00231 and longitude difference of 0.010, within the existing limits. This synthetic case takes longer than Preview 8 because it also runs the stronger geometry/seam stages; the real-source speed comparison above is separate.
+
+Machine-readable evidence: [release](evidence/stitching-release.json), [synthetic pipeline](evidence/stitching-pipeline.json), [row/longitude continuity](evidence/stitching-continuity.json).
+
+![Actual synthetic output from the installed Preview 9 APK](evidence/sample-stitching.jpg)
+
+The published private replay helper was also executed successfully against the supplied ZIP. Synthetic fixtures and host replay do not replace physical Pixel 8 runtime, thermal and camera calibration checks.
