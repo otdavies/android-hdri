@@ -1,0 +1,229 @@
+name: Android
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', '.gitignore']
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Checks are cheap; verify runs a device; release also publishes an APK.'
+        type: choice
+        options: [checks, verify, release]
+        default: checks
+      candidate_run_id:
+        description: 'Optional: reuse paired APKs from this run after CI-only fixes.'
+        type: string
+        default: ''
+      version_code:
+        description: 'Optional: existing APK code for a test-only rebuild. Blank for normal releases.'
+        type: string
+        default: ''
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  # A routine commit cannot interrupt an expensive, explicitly requested release.
+  group: hdri-${{ ((github.event_name == 'workflow_dispatch' && inputs.mode != 'checks') || contains(github.event.head_commit.message, '[release]')) && 'release' || 'checks' }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    if: (github.event_name == 'push' && !contains(github.event.head_commit.message, '[release]')) || (github.event_name == 'workflow_dispatch' && inputs.mode == 'checks')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: never
+      - name: Compile, unit tests and lint only
+        run: ./gradlew testReleaseUnitTest lintRelease --console=plain
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: check-failures
+          path: app/build/reports/
+          retention-days: 3
+
+  build:
+    if: (github.event_name == 'workflow_dispatch' && inputs.mode != 'checks') || contains(github.event.head_commit.message, '[release]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    outputs:
+      source_sha: ${{ steps.candidate.outputs.source_sha }}
+    env:
+      HDRI_VERSION_CODE: ${{ github.run_number }}
+      HDRI_STORE_PASSWORD: ${{ secrets.HDRI_STORE_PASSWORD }}
+      HDRI_KEY_ALIAS: ${{ secrets.HDRI_KEY_ALIAS }}
+      HDRI_KEY_PASSWORD: ${{ secrets.HDRI_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Choose a new build or a retained candidate
+        id: source
+        env:
+          REQUESTED_RUN_ID: ${{ inputs.candidate_run_id }}
+          REQUESTED_VERSION_CODE: ${{ inputs.version_code }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: python3 scripts/candidate-source.py select
+      - uses: actions/setup-java@v4
+        if: steps.source.outputs.run_id == ''
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        if: steps.source.outputs.run_id == ''
+        with:
+          cache-cleanup: never
+      - name: Restore signing identity
+        if: steps.source.outputs.run_id == ''
+        id: signing
+        uses: actions/cache/restore@v4
+        with:
+          path: .signing/preview.keystore
+          key: hdri-preview-signing-v2
+      - name: Configure preview signing
+        if: steps.source.outputs.run_id == ''
+        env:
+          HDRI_KEYSTORE_BASE64: ${{ secrets.HDRI_KEYSTORE_BASE64 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ -n "$HDRI_KEYSTORE_BASE64" ]]; then
+            mkdir -p .signing
+            printf '%s' "$HDRI_KEYSTORE_BASE64" | base64 --decode > .signing/preview.keystore
+          else
+            if [[ ! -s .signing/preview.keystore ]]; then
+              releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq 'length')
+              test "$releases" = 0 || { echo 'Restore HDRI_KEYSTORE_BASE64; refusing to change an established signing identity.' >&2; exit 1; }
+              mkdir -p .signing
+              keytool -genkeypair -keystore .signing/preview.keystore -storepass android -keypass android -alias hdri -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Luma Sphere Development'
+            fi
+            echo 'HDRI_STORE_PASSWORD=android' >> "$GITHUB_ENV"
+            echo 'HDRI_KEY_PASSWORD=android' >> "$GITHUB_ENV"
+            echo 'HDRI_KEY_ALIAS=hdri' >> "$GITHUB_ENV"
+          fi
+          echo "HDRI_KEYSTORE=$GITHUB_WORKSPACE/.signing/preview.keystore" >> "$GITHUB_ENV"
+      - name: Preserve first preview signing identity
+        if: steps.source.outputs.run_id == '' && steps.signing.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .signing/preview.keystore
+          key: hdri-preview-signing-v2
+      - name: Verify inputs and build each APK once
+        if: steps.source.outputs.run_id == ''
+        run: |
+          ./gradlew testReleaseUnitTest lintRelease assembleRelease assembleReleaseAndroidTest --console=plain
+          mkdir -p candidate
+          cp app/build/outputs/apk/release/app-release.apk candidate/hdri-0.1.0-preview.apk
+          cp app/build/outputs/apk/androidTest/release/app-release-androidTest.apk candidate/hdri-tests.apk
+          cd candidate
+          sha256sum *.apk > SHA256SUMS.txt
+      - name: Reuse the paired APKs without Java, Gradle, signing or compilation
+        if: steps.source.outputs.run_id != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: hdri-candidate
+          path: candidate
+          run-id: ${{ steps.source.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify checksums and refuse stale Android code
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSED_RUN_ID: ${{ steps.source.outputs.run_id }}
+        run: |
+          python3 scripts/candidate-source.py verify
+          cd candidate
+          sha256sum --check SHA256SUMS.txt
+      - name: Retain exact candidates for device retries and publication
+        uses: actions/upload-artifact@v4
+        with:
+          name: hdri-candidate
+          path: candidate/
+          retention-days: 3
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-failures
+          path: app/build/reports/
+          retention-days: 3
+
+  device:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hdri-candidate
+          path: candidate
+      - name: Free temporary runner space before SDK installation
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android/sdk/ndk
+          df -h .
+      - name: Restore emulator and system image (no mutable app state)
+        id: sdk
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/emulator
+            /usr/local/lib/android/sdk/system-images/android-36/default/x86_64
+          key: android-test-sdk-api36-aosp-x86_64-v1
+      - name: Verify candidate integrity
+        run: |
+          cd candidate
+          sha256sum --check SHA256SUMS.txt
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Provision only missing Android components
+        timeout-minutes: 3
+        run: ./scripts/prepare-emulator.sh
+      - name: Save SDK before tests so failed tests do not force another download
+        if: steps.sdk.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            /usr/local/lib/android/sdk/emulator
+            /usr/local/lib/android/sdk/system-images/android-36/default/x86_64
+          key: android-test-sdk-api36-aosp-x86_64-v1
+      - name: Test exact candidates without Gradle or rebuilding
+        run: ./scripts/run-emulator.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: device-verification
+          path: verification/
+          retention-days: 3
+
+  publish:
+    needs: [build, device]
+    if: (github.event_name == 'workflow_dispatch' && inputs.mode == 'release') || contains(github.event.head_commit.message, '[release]')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: hdri-candidate
+          path: candidate
+      - name: Publish the exact verified APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          cd candidate
+          sha256sum --check SHA256SUMS.txt
+          sha256sum hdri-0.1.0-preview.apk > RELEASE-SHA256SUMS.txt
+          gh release create "v0.1.0-preview.${GITHUB_RUN_NUMBER}" hdri-0.1.0-preview.apk RELEASE-SHA256SUMS.txt \
+            --target "$CANDIDATE_SHA" --prerelease --title "Luma Sphere 0.1.0 · Preview ${GITHUB_RUN_NUMBER}" \
+            --notes-file ../docs/PREVIEW.md
+
