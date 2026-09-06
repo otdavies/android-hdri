@@ -64,14 +64,43 @@ class HdrPipeline(
     private fun align(images: List<Mat>): List<Mat> {
         val aligned = mutableListOf<Mat>()
         val aligner = Photo.createAlignMTB(5, 4, false)
+        val reference = Mat()
+        Imgproc.cvtColor(images[images.size / 2], reference, Imgproc.COLOR_BGR2GRAY)
         try {
-            aligner.process(images, aligned)
-            check(aligned.size == images.size) { "Exposure alignment did not return every photo." }
+            // OpenCV's generated Java batch binding converts the output list as an input
+            // vector and does not return newly allocated Mats. Use explicit output Mats.
+            images.forEachIndexed { index, source ->
+                checkCancelled()
+                val gray = Mat()
+                val output = Mat()
+                try {
+                    Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
+                    var shift =
+                        if (index == images.size / 2) Point()
+                        else aligner.calculateShift(reference, gray)
+                    val limit = min(source.cols(), source.rows()) * .04
+                    if (abs(shift.x) > limit || abs(shift.y) > limit) {
+                        // A very dark/flat exposure can give an arbitrary MTB displacement.
+                        // Preserve its capture prior; never apply a shift beyond valid overlap.
+                        shift = Point()
+                        warnings +=
+                            "Some exposures had too little detail for reliable bracket alignment. Inspect the sphere for ghosting."
+                    }
+                    aligner.shiftMat(source, output, shift)
+                    aligned += output
+                } catch (e: Exception) {
+                    output.release()
+                    throw e
+                } finally {
+                    gray.release()
+                }
+            }
             return aligned
         } catch (e: Exception) {
             aligned.forEach { it.release() }
             throw e
         } finally {
+            reference.release()
             aligner.clear()
         }
     }
