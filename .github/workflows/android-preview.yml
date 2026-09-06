@@ -98,7 +98,7 @@ jobs:
               releases=$(gh api "repos/$GITHUB_REPOSITORY/releases" --jq 'length')
               test "$releases" = 0 || { echo 'Restore HDRI_KEYSTORE_BASE64; refusing to change an established signing identity.' >&2; exit 1; }
               mkdir -p .signing
-              keytool -genkeypair -keystore .signing/preview.keystore -storepass android -keypass android -alias hdri -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=Luma Sphere Development'
+              keytool -genkeypair -keystore .signing/preview.keystore -storepass android -keypass android -alias hdri -keyalg RSA -keysize 3072 -validity 10000 -dname 'CN=sphere Development'
             fi
             echo 'HDRI_STORE_PASSWORD=android' >> "$GITHUB_ENV"
             echo 'HDRI_KEY_PASSWORD=android' >> "$GITHUB_ENV"
@@ -116,7 +116,7 @@ jobs:
         run: |
           ./gradlew testReleaseUnitTest lintRelease assembleRelease assembleReleaseAndroidTest --console=plain
           mkdir -p candidate
-          cp app/build/outputs/apk/release/app-release.apk candidate/hdri-0.1.0-preview.apk
+          cp app/build/outputs/apk/release/app-release.apk candidate/sphere-0.1.0-preview.apk
           cp app/build/outputs/apk/androidTest/release/app-release-androidTest.apk candidate/hdri-tests.apk
           cd candidate
           sha256sum *.apk > SHA256SUMS.txt
@@ -222,8 +222,8 @@ jobs:
         run: |
           cd candidate
           sha256sum --check SHA256SUMS.txt
-          sha256sum hdri-0.1.0-preview.apk > RELEASE-SHA256SUMS.txt
-          gh release create "v0.1.0-preview.${GITHUB_RUN_NUMBER}" hdri-0.1.0-preview.apk RELEASE-SHA256SUMS.txt \
-            --target "$CANDIDATE_SHA" --prerelease --title "Luma Sphere 0.1.0 · Preview ${GITHUB_RUN_NUMBER}" \
+          sha256sum sphere-0.1.0-preview.apk > RELEASE-SHA256SUMS.txt
+          gh release create "v0.1.0-preview.${GITHUB_RUN_NUMBER}" sphere-0.1.0-preview.apk RELEASE-SHA256SUMS.txt \
+            --target "$CANDIDATE_SHA" --prerelease --title "sphere 0.1.0 · Preview ${GITHUB_RUN_NUMBER}" \
             --notes-file ../docs/PREVIEW.md
 

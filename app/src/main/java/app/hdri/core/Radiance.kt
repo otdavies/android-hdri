@@ -103,7 +103,7 @@ class HdrWriter(private val stream: OutputStream, private val width: Int, height
     init {
         require(width in 8..32767 && height > 0)
         stream.write(
-            "#?RADIANCE\n# Luma Sphere - relative scene radiance, linear RGB / D65\nFORMAT=32-bit_rle_rgbe\n\n-Y $height +X $width\n"
+            "#?RADIANCE\n# sphere - relative scene radiance, linear RGB / D65\nFORMAT=32-bit_rle_rgbe\n\n-Y $height +X $width\n"
                 .toByteArray(Charsets.US_ASCII)
         )
     }

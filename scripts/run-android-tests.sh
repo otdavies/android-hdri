@@ -9,9 +9,9 @@ collect() {
 }
 trap collect EXIT
 device_adb() { timeout --kill-after=3s 60 adb "$@"; }
-device_adb install -r candidate/hdri-0.1.0-preview.apk || exit $?
+device_adb install -r candidate/sphere-0.1.0-preview.apk || exit $?
 # Reinstall the exact binary to exercise update compatibility without destructive uninstall.
-device_adb install -r candidate/hdri-0.1.0-preview.apk || exit $?
+device_adb install -r candidate/sphere-0.1.0-preview.apk || exit $?
 device_adb install -r -t candidate/hdri-tests.apk || exit $?
 device_adb shell pm clear io.github.otdavies.hdri.preview || exit $?
 device_adb logcat -c
@@ -25,8 +25,8 @@ import re,sys
 text=Path('verification/instrumentation.txt').read_text()
 ok=re.search(r'OK \((\d+) tests?\)',text)
 failed=any(s in text for s in ['FAILURES!!!','INSTRUMENTATION_FAILED','Process crashed','INSTRUMENTATION_STATUS_CODE: -2'])
-if not ok or int(ok.group(1))<12 or failed:
-    print('The twelve required installed-APK tests did not all pass.',file=sys.stderr)
+if not ok or int(ok.group(1))<14 or failed:
+    print('The fourteen required installed-APK tests did not all pass.',file=sys.stderr)
     sys.exit(1)
 print(f'Verified {ok.group(1)} tests against the release APK.')
 PY

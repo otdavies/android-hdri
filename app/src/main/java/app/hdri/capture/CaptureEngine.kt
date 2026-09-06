@@ -96,13 +96,16 @@ class CaptureEngine(
     private var lastUi = 0L
     private var lastFrameTimestamp = 0L
     private var selected = -1
+    @Volatile private var focusWaitSince = 0L
     @Volatile private var planning = false
     private val gate = SteadyGate()
     private var pending: Pending? = null
     @Volatile private var manualRequested = false
     @Volatile private var noticeUntil = 0L
     @Volatile private var notice: String? = null
-    private var fixedIso: Int? = null
+    @Volatile private var resultReceivedAt = 0L
+    @Volatile private var focusStableSince = 0L
+    @Volatile private var previousFocus: Float? = null
     @Volatile private var errorLatched = false
 
     private data class Pending(
@@ -111,6 +114,7 @@ class CaptureEngine(
         val offset: Q,
         val lens: Lens,
         val expected: Int,
+        val fallbackFocus: Boolean = false,
         val results: MutableMap<Long, Exposure> = mutableMapOf(),
         val files: MutableMap<Long, String> = mutableMapOf(),
         val windows: MutableList<LongRange> = mutableListOf(),
@@ -271,10 +275,19 @@ class CaptureEngine(
                 }
                 if (selected != next.id) {
                     selected = next.id
+                    focusWaitSince = 0L
                     gate.reset()
                 }
                 val angle = forward.angle(next.ray)
-                val dwell = gate.update(motion.time, q, angle, true)
+                val now = SystemClock.elapsedRealtimeNanos()
+                if (angle > CaptureTolerance.AIM_EXIT) focusWaitSince = 0L
+                else if (focusWaitSince == 0L) focusWaitSince = now
+                val focusFallback = focusWaitSince != 0L && now - focusWaitSince >= 1_800_000_000L
+                val focusReady =
+                    now - resultReceivedAt < 500_000_000L &&
+                        ((focusStableSince != 0L && now - focusStableSince >= 200_000_000L) ||
+                            focusFallback)
+                val dwell = gate.update(motion.time, q, angle, focusReady)
                 val dq =
                     (offset ?: Q()) *
                         motion.device *
@@ -300,6 +313,8 @@ class CaptureEngine(
                 val guide = AimGuide.from(dq, next.ray)
                 val msg =
                     when {
+                        !focusReady && angle <= CaptureTolerance.AIM_EXIT ->
+                            "Waiting for focus to settle"
                         gate.reason == HoldReason.SETTLING || gate.reason == HoldReason.READY ->
                             "Nice aim · capturing automatically"
                         else -> guide.instruction
@@ -308,7 +323,7 @@ class CaptureEngine(
                     CaptureUi(
                         msg,
                         if (angle <= CaptureTolerance.AIM_EXIT)
-                            "Small wobbles are okay. Let the ring fill."
+                            "Pause your turn · let focus and the shutter ring settle."
                         else "Rotate in place · follow the glow to the next dot.",
                         done.size,
                         project.targets.size,
@@ -319,11 +334,11 @@ class CaptureEngine(
                         aimDegrees = angle.toFloat(),
                         aimLocked =
                             gate.reason == HoldReason.SETTLING || gate.reason == HoldReason.READY,
-                        manualReady = angle <= CaptureTolerance.AIM_ENTER,
+                        manualReady = angle <= CaptureTolerance.AIM_ENTER && dwell > 0.0,
                         notice = if (SystemClock.elapsedRealtime() < noticeUntil) notice else null,
                     )
                 )
-                val manual = manualRequested && angle <= CaptureTolerance.AIM_ENTER
+                val manual = manualRequested && angle <= CaptureTolerance.AIM_ENTER && dwell > 0.0
                 manualRequested = false
                 if (dwell >= 1.0 || manual) {
                     capturing = true
@@ -558,6 +573,26 @@ class CaptureEngine(
                 r: CaptureRequest,
                 result: TotalCaptureResult,
             ) {
+                val now = SystemClock.elapsedRealtimeNanos()
+                val focus = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                val af = result.get(CaptureResult.CONTROL_AF_STATE)
+                val scanning =
+                    af == CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN ||
+                        af == CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN
+                val moving = result.get(CaptureResult.LENS_STATE) == CaptureResult.LENS_STATE_MOVING
+                if (
+                    moving ||
+                        scanning ||
+                        resultReceivedAt == 0L ||
+                        now - resultReceivedAt > 500_000_000L ||
+                        (focus != null &&
+                            previousFocus != null &&
+                            abs(focus - previousFocus!!) > .08f)
+                ) {
+                    focusStableSince = 0L
+                } else if (focusStableSince == 0L) focusStableSince = now
+                previousFocus = focus
+                resultReceivedAt = now
                 latestResult = result
             }
         }
@@ -603,11 +638,14 @@ class CaptureEngine(
             val range = c.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)!!
             val isoRange = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)!!
             val aeIso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 100
+            // Prefer a little sensor noise over long, smeared handheld exposures. Keep ISO
+            // fixed inside a bracket; each frame records its actual gain for HDR merging.
+            val previewTime = result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 10_000_000L
             val iso =
-                fixedIso
-                    ?: aeIso.coerceIn(isoRange.lower, min(400, isoRange.upper)).also {
-                        fixedIso = it
-                    }
+                ((previewTime.toDouble() * aeIso / 8_333_333L).roundToInt()).coerceIn(
+                    isoRange.lower,
+                    max(isoRange.lower, min(800, isoRange.upper)),
+                )
             val base =
                 ((result.get(CaptureResult.SENSOR_EXPOSURE_TIME) ?: 10_000_000L).toDouble() *
                         aeIso / iso)
@@ -617,19 +655,37 @@ class CaptureEngine(
                     base,
                     project.quality.bracketCount,
                     range.lower,
-                    min(range.upper, 250_000_000L),
+                    min(range.upper, 62_500_000L),
                 )
             check(times.size >= 3) {
                 "This scene exceeds the camera's bracket range. Aim at a mid-brightness area and retry."
             }
             // Freeze the preview's settled focus across the bracket. Jumping to infinity
             // here changed sharpness and magnification during indoor captures.
+            val now = SystemClock.elapsedRealtimeNanos()
+            if (now - resultReceivedAt > 500_000_000L) {
+                abort("Waiting for a fresh camera frame", automaticallyRetry = true)
+                return
+            }
+            val af = result.get(CaptureResult.CONTROL_AF_STATE)
+            val fallbackFocus =
+                focusStableSince == 0L ||
+                    af == CaptureResult.CONTROL_AF_STATE_PASSIVE_UNFOCUSED ||
+                    af == CaptureResult.CONTROL_AF_STATE_NOT_FOCUSED_LOCKED
+            // Featureless sky must not trap capture in an endless AF hunt. A timed fallback
+            // selects distant focus; a native preview preflight verifies the lens has arrived.
             val focus =
-                (result.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f).coerceIn(
-                    0f,
-                    c.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f,
-                )
-            pending = Pending(id, q, captureOffset, lens, times.size)
+                (if (fallbackFocus) 0f else result.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f)
+                    .coerceIn(
+                        0f,
+                        c.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f,
+                    )
+            val recentMotion = gyro.excursion(now - 150_000_000L, now - 20_000_000L)
+            if (recentMotion != null && recentMotion > .5) {
+                abort("Finish the turn · waiting for a clear exposure", automaticallyRetry = true)
+                return
+            }
+            pending = Pending(id, q, captureOffset, lens, times.size, fallbackFocus)
             state.value =
                 state.value.copy(
                     busy = true,
@@ -717,60 +773,81 @@ class CaptureEngine(
                                 )
                             set(CaptureRequest.JPEG_ORIENTATION, 0)
                             set(CaptureRequest.JPEG_QUALITY, 98.toByte())
+                            // Avoid costly still-template smoothing while retaining the ISP's
+                            // normal demosaic and modest edge processing.
+                            if (
+                                c.get(
+                                        CameraCharacteristics
+                                            .NOISE_REDUCTION_AVAILABLE_NOISE_REDUCTION_MODES
+                                    )
+                                    ?.contains(CaptureRequest.NOISE_REDUCTION_MODE_FAST) == true
+                            )
+                                set(
+                                    CaptureRequest.NOISE_REDUCTION_MODE,
+                                    CaptureRequest.NOISE_REDUCTION_MODE_FAST,
+                                )
+                            if (
+                                c.get(CameraCharacteristics.EDGE_AVAILABLE_EDGE_MODES)
+                                    ?.contains(CaptureRequest.EDGE_MODE_FAST) == true
+                            )
+                                set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
                         }
                         .build()
                 }
-            captureSession!!.captureBurst(
-                requests,
-                object : CameraCaptureSession.CaptureCallback() {
-                    override fun onCaptureCompleted(
-                        s: CameraCaptureSession,
-                        r: CaptureRequest,
-                        result: TotalCaptureResult,
-                    ) {
-                        val p = pending ?: return
-                        val timestamp =
-                            result.get(CaptureResult.SENSOR_TIMESTAMP)
-                                ?: return abort(
-                                    "The camera did not report a frame timestamp. Retry this direction."
-                                )
-                        val time =
-                            result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
-                                ?: return abort(
-                                    "The camera did not report exposure time. Retry this direction."
-                                )
-                        val gain =
-                            result.get(CaptureResult.SENSOR_SENSITIVITY)
-                                ?: return abort(
-                                    "The camera did not report ISO. Retry this direction."
-                                )
-                        p.results[timestamp] = Exposure("", time, gain, timestamp)
-                        p.windows +=
-                            timestamp..(timestamp +
-                                    time +
-                                    (result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW) ?: 0L))
-                        finishIfReady()
-                    }
+            settleLens(focus) {
+                captureSession!!.captureBurst(
+                    requests,
+                    object : CameraCaptureSession.CaptureCallback() {
+                        override fun onCaptureCompleted(
+                            s: CameraCaptureSession,
+                            r: CaptureRequest,
+                            result: TotalCaptureResult,
+                        ) {
+                            val p = pending ?: return
+                            val timestamp =
+                                result.get(CaptureResult.SENSOR_TIMESTAMP)
+                                    ?: return abort(
+                                        "The camera did not report a frame timestamp. Retry this direction."
+                                    )
+                            val time =
+                                result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                                    ?: return abort(
+                                        "The camera did not report exposure time. Retry this direction."
+                                    )
+                            val gain =
+                                result.get(CaptureResult.SENSOR_SENSITIVITY)
+                                    ?: return abort(
+                                        "The camera did not report ISO. Retry this direction."
+                                    )
+                            p.results[timestamp] = Exposure("", time, gain, timestamp)
+                            p.windows +=
+                                timestamp..(timestamp +
+                                        time +
+                                        (result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
+                                            ?: 0L))
+                            finishIfReady()
+                        }
 
-                    override fun onCaptureFailed(
-                        s: CameraCaptureSession,
-                        r: CaptureRequest,
-                        f: CaptureFailure,
-                    ) {
-                        abort(
-                            "Exposure capture failed (${f.reason}). Hold steady and retry this direction."
-                        )
-                    }
+                        override fun onCaptureFailed(
+                            s: CameraCaptureSession,
+                            r: CaptureRequest,
+                            f: CaptureFailure,
+                        ) {
+                            abort(
+                                "Exposure capture failed (${f.reason}). Hold steady and retry this direction."
+                            )
+                        }
 
-                    override fun onCaptureSequenceAborted(
-                        s: CameraCaptureSession,
-                        sequenceId: Int,
-                    ) {
-                        abort("Capture was interrupted. Retry this direction.")
-                    }
-                },
-                handler,
-            )
+                        override fun onCaptureSequenceAborted(
+                            s: CameraCaptureSession,
+                            sequenceId: Int,
+                        ) {
+                            abort("Capture was interrupted. Retry this direction.")
+                        }
+                    },
+                    handler,
+                )
+            }
             val token = pending
             handler.postDelayed(
                 {
@@ -782,6 +859,95 @@ class CaptureEngine(
         } catch (e: Exception) {
             abort(e.message ?: "Could not capture this bracket. Retry this direction.")
         }
+    }
+
+    /** Confirm the physical lens and stabilization transition before exposing any JPEG. */
+    private fun settleLens(focus: Float, beginBurst: () -> Unit) {
+        val token = pending ?: return
+        val start = SystemClock.elapsedRealtimeNanos()
+        var stableFrames = 0
+        var started = false
+        state.value =
+            state.value.copy(
+                message = "Settling the lens",
+                detail =
+                    if (token.fallbackFocus) "Low detail · using distant focus · hold steady"
+                    else "Confirming focus · hold steady",
+            )
+        val request =
+            camera!!
+                .createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+                .apply {
+                    ar!!.sharedCamera.arCoreSurfaces.forEach { addTarget(it) }
+                    set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+                    set(CaptureRequest.LENS_FOCUS_DISTANCE, focus)
+                    set(
+                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
+                        CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
+                    )
+                    if (
+                        characteristics
+                            ?.get(CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION)
+                            ?.contains(0) == true
+                    )
+                        set(
+                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                            CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
+                        )
+                }
+                .build()
+        captureSession!!.setRepeatingRequest(
+            request,
+            object : CameraCaptureSession.CaptureCallback() {
+                override fun onCaptureCompleted(
+                    session: CameraCaptureSession,
+                    request: CaptureRequest,
+                    result: TotalCaptureResult,
+                ) {
+                    if (closed || pending !== token || started) return
+                    val actual = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                    val still =
+                        result.get(CaptureResult.LENS_STATE) != CaptureResult.LENS_STATE_MOVING &&
+                            (actual == null || abs(actual - focus) <= max(.08f, focus * .05f))
+                    stableFrames = if (still) stableFrames + 1 else 0
+                    if (
+                        stableFrames < 2 ||
+                            SystemClock.elapsedRealtimeNanos() - start < 100_000_000L
+                    )
+                        return
+                    started = true
+                    try {
+                        val now = SystemClock.elapsedRealtimeNanos()
+                        if ((gyro.excursion(now - 150_000_000L, now - 20_000_000L) ?: 0.0) > .5) {
+                            abort(
+                                "Finish the turn · waiting for a clear exposure",
+                                automaticallyRetry = true,
+                            )
+                            return
+                        }
+                        session.stopRepeating()
+                        state.value =
+                            state.value.copy(
+                                message = "Capturing HDR bracket",
+                                detail = "${token.expected} short exposures · hold steady",
+                            )
+                        beginBurst()
+                    } catch (e: Exception) {
+                        abort("Camera could not finish focusing: ${e.message}")
+                    }
+                }
+            },
+            handler,
+        )
+        handler.postDelayed(
+            {
+                if (pending === token && !started)
+                    abort(
+                        "The lens did not settle. Point at a detailed area and retry this direction."
+                    )
+            },
+            2_000,
+        )
     }
 
     private fun finishIfReady() {
@@ -811,17 +977,21 @@ class CaptureEngine(
                 if (sensorClock)
                     p.windows.mapNotNull { gyro.excursion(it.first, it.last) }.maxOrNull()
                 else null
-            if ((excursion ?: 0.0) > 6.0 || (blur ?: 0.0) > 2.5) {
+            if ((excursion ?: 0.0) > 6.0 || (blur ?: 0.0) > .3) {
                 abort(
-                    "That bracket moved too far · settling for another automatic try",
+                    "Movement during the exposure · automatically retrying this direction",
                     automaticallyRetry = true,
                 )
                 return
             }
             val findings = buildList {
+                if (p.fallbackFocus)
+                    add(
+                        "Autofocus could not confirm detail; distant focus was used. Inspect nearby objects for softness."
+                    )
                 if (excursion == null)
                     add("Motion measurements were incomplete; inspect this direction for blur.")
-                else if (excursion > 1.5 || (blur ?: 0.0) > .8)
+                else if (excursion > 1.5 || (blur ?: 0.0) > .12)
                     add("Some movement occurred during capture; inspect alignment and sharpness.")
             }
             check(exposures.last().seconds / exposures.first().seconds >= 3.8) {

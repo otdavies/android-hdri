@@ -1,18 +1,16 @@
-# Luma Sphere 0.1.0 · device-test preview
+# sphere 0.1.0 · device-test preview
 
-Download **hdri-0.1.0-preview.apk** below and open it on your Pixel 8. Allow installation from your browser/Files app when Android asks.
+Download **sphere-0.1.0-preview.apk** below and open it on your Pixel 8. This updates Luma Sphere in place and preserves saved captures.
 
-This preview includes gyro-guided automatic exposure brackets, fully on-device HDR reconstruction and spherical stitching, visible progress, pause/recovery, interactive preview and Radiance HDR / photosphere JPEG / source-bundle exports.
+## New in this preview
 
-The handheld stitching update adds stronger visual matching, joint camera refinement, checked local warps and continuous graph-cut seams. It also fixes false color contours from clipped JPEG channels, accelerates radiance merging and rendering, and exposes stage timings. Open an existing completed project and choose **Rebuild from saved photos** to process it again without recapturing.
+- **sphere** branding, a warm neutral interface and adaptive/themed launcher icon.
+- **Light check**: chrome and 18% grey spheres rendered from your actual HDR environment, with shared rotation, ±8 EV exposure and linear / highlight-roll-off display modes.
+- **Explore HDR**: inspect the environment at different exposures. Viewing controls leave HDR exports unchanged.
+- A slower, deliberate automatic shutter that accepts small tremor but rejects slow pans and waits for focus. Shorter native Camera2 exposures and tighter exposure-time motion checks target blurry source photos.
 
-A private 41-direction replay reduced unmatched directions from 19 to 5 and fresh host processing from 58.1 to 49.1 seconds. This is host evidence, not a Pixel 8 speed promise. Some nearby-object and curtain seams remain imperfect. See [stitching measurements and release verification](https://github.com/otdavies/android-hdri/blob/main/docs/STITCHING-UPDATE.md).
+Open an existing completed capture and tap **Check the light** to try the spheres without recapturing. **Explore a sample capture** exercises the entire local pipeline. The improved Preview 9 stitching remains available through **Rebuild from saved photos**.
 
-The sky-capture update replaces AR position guidance with a continuous fused gyro/gravity reference and an assumed fixed center. Blank sky and AR relocalization no longer move the sphere or ask you to walk. Automatic capture remains forgiving, with directional glow, arrows, tilt guidance and a clear gyro status.
+See [lighting and capture details](https://github.com/otdavies/android-hdri/blob/main/docs/SPHERE-UPDATE.md). HDR values are relative radiance reconstructed from JPEG brackets; lighting views are SDR inspection references, not calibrated photometry or ACES previews. Close-object parallax and clipped practical lights remain limitations. Fresh Pixel 8 capture is needed to judge the camera changes.
 
-A rectangular-lens coverage planner substantially reduces redundant stops. The exact total is calculated from your camera, with margins for stitching crop and handheld aiming. Existing unfinished captures receive the smaller plan and keep their saved photos. Each stop still takes three or five HDR exposures automatically.
-Start with **Explore a sample capture** to exercise processing without a camera, then try a static real scene. Keep the main camera lens at one physical point and complete the sky and ground.
-
-HDR values are relative radiance reconstructed from JPEG exposure brackets; they are not RAW-derived or absolute photometric measurements. Real Pixel 8 shared-camera behavior, calibration and visual quality still need physical testing. Parallax, motion and clipped light sources can affect results. See the repository's Pixel 8 acceptance checklist and research notes.
-
-The APK is a signed development preview. CI verifies the same binary that is published; physical sensor/camera testing is a separate step. All original photos stay on your phone unless you export them. Google Play Services for AR must be installed for capture; no backend or app Internet permission is used.
+Everything runs on the phone, with visible progress and retained original exposures. Capture requires Google Play Services for AR; guidance uses fused gyro/gravity. No backend or app Internet permission. This is a signed development preview; CI tests the same APK that is published.

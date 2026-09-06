@@ -49,7 +49,7 @@ timeout --kill-after=2s 15 adb shell settings put global transition_animation_sc
 timeout --kill-after=2s 15 adb shell settings put global animator_duration_scale 0
 timeout --kill-after=2s 15 adb shell settings put secure spell_checker_enabled 0
 # The first-boot Quickstep launcher can ANR under the two-core native benchmark and cover screenshots.
-# Tests launch Luma Sphere directly; disable only the disposable emulator's unrelated home app.
+# Tests launch sphere directly; disable only the disposable emulator's unrelated home app.
 # App crash/ANR dialogs and instrumentation timeouts remain enabled.
 timeout --kill-after=2s 15 adb shell pm disable-user --user 0 com.android.launcher3
 ./scripts/run-android-tests.sh

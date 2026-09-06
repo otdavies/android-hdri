@@ -16,7 +16,7 @@ import app.hdri.capture.CaptureUi
 import app.hdri.capture.Marker
 import app.hdri.core.AimGuide
 import app.hdri.ui.CaptureOverlay
-import app.hdri.ui.LumaTheme
+import app.hdri.ui.SphereTheme
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Rule
@@ -85,7 +85,7 @@ class UiTest {
         var manualTaps = 0
         rule.runOnUiThread {
             rule.activity.setContent {
-                LumaTheme {
+                SphereTheme {
                     Box(Modifier.fillMaxSize().background(Color(0xFF46534A))) {
                         CaptureOverlay(state.value, {}, { manualTaps++ })
                     }

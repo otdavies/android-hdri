@@ -1,26 +1,34 @@
 package app.hdri.ui
 
 import android.content.Context
-import android.graphics.BitmapFactory
-import android.opengl.GLES20.*
+import android.opengl.GLES30.*
 import android.opengl.GLSurfaceView
-import android.opengl.GLUtils
 import android.view.MotionEvent
 import app.hdri.core.Q
 import app.hdri.core.V3
-import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-class SphereViewer(context: Context, private val file: File, private val ready: () -> Unit) :
-    GLSurfaceView(context), GLSurfaceView.Renderer {
+/**
+ * On-demand float HDR renderer. The two probes share orientation, exposure and display transform.
+ */
+internal class SphereViewer(
+    context: Context,
+    private val environment: LightingEnvironment,
+    private val ready: () -> Unit,
+    private val failed: (String) -> Unit,
+) : GLSurfaceView(context), GLSurfaceView.Renderer {
     private var shader = 0
-    private var texture = 0
+    private val textures = IntArray(2)
     private var aspect = 1f
     @Volatile private var yaw = 0.0
     @Volatile private var pitch = 0.0
+    @Volatile var exposure = 0f
+    @Volatile var probes = true
+    @Volatile var linear = false
+    private var announced = false
     private var lastX = 0f
     private var lastY = 0f
     private val vertices =
@@ -30,14 +38,15 @@ class SphereViewer(context: Context, private val file: File, private val ready: 
         }
 
     init {
-        setEGLContextClientVersion(2)
+        setEGLContextClientVersion(3)
+        preserveEGLContextOnPause = true
         setRenderer(this)
         renderMode = RENDERMODE_WHEN_DIRTY
-        contentDescription = "Photosphere viewer. Drag to look around."
+        contentDescription = "HDR lighting viewer. Drag to rotate the environment."
     }
 
     fun look(dx: Double, dy: Double) {
-        yaw += dx
+        yaw = (yaw + dx) % 360.0
         pitch = (pitch + dy).coerceIn(-89.0, 89.0)
         requestRender()
     }
@@ -49,72 +58,111 @@ class SphereViewer(context: Context, private val file: File, private val ready: 
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        fun compile(type: Int, source: String): Int {
-            val s = glCreateShader(type)
-            glShaderSource(s, source)
-            glCompileShader(s)
-            return s
+        announced = false
+        try {
+            fun compile(type: Int, source: String): Int {
+                val id = glCreateShader(type)
+                glShaderSource(id, source)
+                glCompileShader(id)
+                val status = IntArray(1)
+                glGetShaderiv(id, GL_COMPILE_STATUS, status, 0)
+                check(status[0] != 0) { "Lighting shader: ${glGetShaderInfoLog(id)}" }
+                return id
+            }
+            val vertex =
+                compile(
+                    GL_VERTEX_SHADER,
+                    "#version 300 es\nin vec2 p;out vec2 pos;void main(){pos=p;gl_Position=vec4(p,0.,1.);}",
+                )
+            val fragment = compile(GL_FRAGMENT_SHADER, FRAGMENT)
+            shader = glCreateProgram()
+            glAttachShader(shader, vertex)
+            glAttachShader(shader, fragment)
+            glLinkProgram(shader)
+            glDeleteShader(vertex)
+            glDeleteShader(fragment)
+            val status = IntArray(1)
+            glGetProgramiv(shader, GL_LINK_STATUS, status, 0)
+            check(status[0] != 0) { "Lighting renderer: ${glGetProgramInfoLog(shader)}" }
+            glGenTextures(2, textures, 0)
+            listOf(environment.reflection, environment.diffuse).forEachIndexed { index, map ->
+                glBindTexture(GL_TEXTURE_2D, textures[index])
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
+                val data =
+                    ByteBuffer.allocateDirect(map.rgb.size * 4)
+                        .order(ByteOrder.nativeOrder())
+                        .asFloatBuffer()
+                data.put(map.rgb).position(0)
+                // RGB32F + manual filtering preserves highlights above half-float range and
+                // works without optional float-linear texture extensions.
+                glTexImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    GL_RGB32F,
+                    map.width,
+                    map.height,
+                    0,
+                    GL_RGB,
+                    GL_FLOAT,
+                    data,
+                )
+            }
+            check(glGetError() == GL_NO_ERROR) { "The phone could not upload the HDR textures." }
+        } catch (e: Exception) {
+            shader = 0
+            post { failed(e.message ?: "The lighting view could not start.") }
         }
-        val v =
-            compile(
-                GL_VERTEX_SHADER,
-                "attribute vec2 p;varying vec2 pos;void main(){pos=p;gl_Position=vec4(p,0.,1.);}",
-            )
-        val f =
-            compile(
-                GL_FRAGMENT_SHADER,
-                "precision highp float;varying vec2 pos;uniform sampler2D tex;uniform mat3 rot;uniform float aspect;void main(){vec3 d=normalize(rot*vec3(pos.x*aspect*.7,pos.y*.7,-1.));vec2 uv=vec2(atan(d.x,-d.z)/6.2831853+.5,.5-asin(clamp(d.y,-1.,1.))/3.14159265);gl_FragColor=texture2D(tex,uv);}",
-            )
-        shader = glCreateProgram()
-        glAttachShader(shader, v)
-        glAttachShader(shader, f)
-        glLinkProgram(shader)
-        glDeleteShader(v)
-        glDeleteShader(f)
-        val names = IntArray(1)
-        glGenTextures(1, names, 0)
-        texture = names[0]
-        glBindTexture(GL_TEXTURE_2D, texture)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-        val bitmap = BitmapFactory.decodeFile(file.path)
-        if (bitmap != null) {
-            GLUtils.texImage2D(GL_TEXTURE_2D, 0, bitmap, 0)
-            bitmap.recycle()
-        }
-        post { ready() }
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
         glViewport(0, 0, width, height)
-        aspect = width.toFloat() / height
+        aspect = width.toFloat() / height.coerceAtLeast(1)
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        glClearColor(.082f, .09f, .098f, 1f)
         glClear(GL_COLOR_BUFFER_BIT)
+        if (shader == 0) return
         glUseProgram(shader)
-        glActiveTexture(GL_TEXTURE0)
-        glBindTexture(GL_TEXTURE_2D, texture)
-        glUniform1i(glGetUniformLocation(shader, "tex"), 0)
+        for (i in 0..1) {
+            glActiveTexture(GL_TEXTURE0 + i)
+            glBindTexture(GL_TEXTURE_2D, textures[i])
+            glUniform1i(glGetUniformLocation(shader, if (i == 0) "env" else "diffuseMap"), i)
+        }
         val q = Q.look(yaw, pitch)
-        val axes =
-            listOf(V3(1.0, 0.0, 0.0), V3(0.0, 1.0, 0.0), V3(0.0, 0.0, 1.0)).map { q.rotate(it) }
         val matrix =
-            axes.flatMap { listOf(it.x.toFloat(), it.y.toFloat(), it.z.toFloat()) }.toFloatArray()
+            listOf(V3(1.0, 0.0, 0.0), V3(0.0, 1.0, 0.0), V3(0.0, 0.0, 1.0))
+                .flatMap {
+                    val v = q.rotate(it)
+                    listOf(v.x.toFloat(), v.y.toFloat(), v.z.toFloat())
+                }
+                .toFloatArray()
         glUniformMatrix3fv(glGetUniformLocation(shader, "rot"), 1, false, matrix, 0)
         glUniform1f(glGetUniformLocation(shader, "aspect"), aspect)
+        glUniform1f(
+            glGetUniformLocation(shader, "gain"),
+            environment.scale * Math.pow(2.0, exposure.toDouble()).toFloat(),
+        )
+        glUniform1i(glGetUniformLocation(shader, "probes"), if (probes) 1 else 0)
+        glUniform1i(glGetUniformLocation(shader, "linearDisplay"), if (linear) 1 else 0)
         val p = glGetAttribLocation(shader, "p")
         vertices.position(0)
         glEnableVertexAttribArray(p)
         glVertexAttribPointer(p, 2, GL_FLOAT, false, 0, vertices)
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
         glDisableVertexAttribArray(p)
+        if (!announced) {
+            announced = true
+            val error = glGetError()
+            post { if (error == GL_NO_ERROR) ready() else failed("Lighting draw failed ($error).") }
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
+        when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
@@ -129,6 +177,7 @@ class SphereViewer(context: Context, private val file: File, private val ready: 
                 performClick()
                 parent?.requestDisallowInterceptTouchEvent(false)
             }
+            MotionEvent.ACTION_CANCEL -> parent?.requestDisallowInterceptTouchEvent(false)
         }
         return true
     }
@@ -136,5 +185,44 @@ class SphereViewer(context: Context, private val file: File, private val ready: 
     override fun performClick(): Boolean {
         super.performClick()
         return true
+    }
+
+    companion object {
+        private val FRAGMENT =
+            """#version 300 es
+precision highp float;
+precision highp int;
+in vec2 pos;out vec4 color;
+uniform sampler2D env;uniform sampler2D diffuseMap;
+uniform mat3 rot;uniform float aspect;uniform float gain;
+uniform bool probes;uniform bool linearDisplay;
+vec3 fetch(sampler2D t, ivec2 p) {
+    ivec2 s=textureSize(t,0);p.x=(p.x%s.x+s.x)%s.x;p.y=clamp(p.y,0,s.y-1);
+    return texelFetch(t,p,0).rgb;
+}
+vec3 light(sampler2D t,vec3 d) {
+    d=normalize(d);
+    vec2 uv=vec2(atan(d.x,-d.z)/6.283185307+.5,.5-asin(clamp(d.y,-1.,1.))/3.141592654);
+    vec2 p=uv*vec2(textureSize(t,0))-.5;ivec2 i=ivec2(floor(p));vec2 f=fract(p);
+    return mix(mix(fetch(t,i),fetch(t,i+ivec2(1,0)),f.x),mix(fetch(t,i+ivec2(0,1)),fetch(t,i+ivec2(1,1)),f.x),f.y);
+}
+vec3 display(vec3 radiance) {
+    vec3 c=max(radiance*gain,vec3(0.));
+    c=linearDisplay?clamp(c,0.,1.):c/(vec3(1.)+c);
+    return mix(12.92*c,1.055*pow(c,vec3(1./2.4))-.055,step(vec3(.0031308),c));
+}
+void main() {
+    if(!probes) {color=vec4(display(light(env,rot*vec3(pos.x*aspect*.7,pos.y*.7,-1.))),1.);return;}
+    vec2 p=vec2(pos.x*aspect,pos.y);
+    float radius=min(aspect*.41,.78);bool chrome=pos.x<0.;
+    vec2 local=(p-vec2((chrome?-.5:.5)*aspect,0.))/radius;
+    float rr=dot(local,local);float aa=max(fwidth(rr),.001);
+    vec3 background=vec3(.082,.090,.098);
+    if(rr>1.+aa) {color=vec4(background,1.);return;}
+    vec3 n=normalize(vec3(local,sqrt(max(0.,1.-rr))));
+    vec3 radiance=chrome?light(env,rot*reflect(vec3(0.,0.,-1.),n)):.18*light(diffuseMap,rot*n);
+    color=vec4(mix(display(radiance),background,smoothstep(1.-aa,1.+aa,rr)),1.);
+}
+"""
     }
 }

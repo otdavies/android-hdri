@@ -48,6 +48,34 @@ class CaptureBehaviorTest {
     }
 
     @Test
+    fun slowPanCannotFillTheRingAndMustSettleBeforeFiring() {
+        val gate = SteadyGate()
+        for (i in 0..100) {
+            val yaw = -2.0 + i * .04
+            assertTrue(
+                "A 1.2 degree/second pan fired the shutter",
+                gate.update(1_000_000_000L + i * 33_333_333L, Q.look(yaw, 0.0), abs(yaw), true) <
+                    1.0,
+            )
+        }
+        var firedAt = -1
+        for (i in 1..45) {
+            val credit = gate.update(4_333_333_300L + i * 33_333_333L, Q.look(2.0, 0.0), 2.0, true)
+            if (credit >= 1 && firedAt < 0) firedAt = i
+        }
+        assertTrue("Must settle, then fire automatically", firedAt in 16..45)
+    }
+
+    @Test
+    fun restartingMovementClearsAlmostCompleteShutterCredit() {
+        val gate = SteadyGate()
+        for (i in 0..20) gate.update(1_000_000_000L + i * 33_333_333L, Q(), 0.0, true)
+        assertTrue(gate.update(1_700_000_000L, Q(), 0.0, true) > .5)
+        assertEquals(0.0, gate.update(1_733_333_333L, Q.look(1.2, 0.0), 1.2, true), 0.0)
+        assertTrue(gate.update(1_766_666_666L, Q.look(1.2, 0.0), 1.2, true) < 1.0)
+    }
+
+    @Test
     fun gyroMeasuresExcursionInsteadOfAddingEveryWobbleOrJpegWriteDelay() {
         val gyro = GyroHistory()
         val begin = 1_000_000_000L

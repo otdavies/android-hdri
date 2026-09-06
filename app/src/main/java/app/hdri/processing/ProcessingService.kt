@@ -60,7 +60,7 @@ class ProcessingService : Service() {
                 try {
                     wakeLock =
                         power
-                            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LumaSphere:processing")
+                            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Sphere:processing")
                             .apply { acquire(30 * 60 * 1000L) }
                     var p =
                         store.update(id) {
@@ -179,7 +179,7 @@ class ProcessingService : Service() {
             )
         return NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_sphere)
-            .setContentTitle("Luma Sphere")
+            .setContentTitle("sphere")
             .setContentText(stage)
             .setContentIntent(open)
             .setOnlyAlertOnce(true)

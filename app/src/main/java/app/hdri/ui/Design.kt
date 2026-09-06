@@ -14,14 +14,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import kotlin.math.*
 
-val Ink = Color(0xFF101411)
-val Panel = Color(0xFF1C231D)
-val Lime = Color(0xFFD8F5A2)
-val Muted = Color(0xFFA9B4A6)
+val Ink = Color(0xFF151719)
+val Panel = Color(0xFF232629)
+val Lime = Color(0xFFF2CB92)
+val Muted = Color(0xFFB5B9BD)
 val Amber = Color(0xFFFFCA8A)
 
 @Composable
-fun LumaTheme(content: @Composable () -> Unit) {
+fun SphereTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme =
             darkColorScheme(
@@ -30,9 +30,9 @@ fun LumaTheme(content: @Composable () -> Unit) {
                 background = Ink,
                 surface = Ink,
                 surfaceVariant = Panel,
-                onSurface = Color(0xFFF0F3EA),
+                onSurface = Color(0xFFF3F1ED),
                 onSurfaceVariant = Muted,
-                outline = Color(0xFF424D40),
+                outline = Color(0xFF4B4F53),
                 error = Color(0xFFFFB4AB),
             ),
         content = content,

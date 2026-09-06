@@ -195,7 +195,7 @@ class SessionStore(context: Context) {
 
         fun decode(j: JSONObject): Project {
             require(j.getInt("schema") == 1) {
-                "This capture uses a newer format. Install the latest Luma Sphere APK."
+                "This capture uses a newer format. Install the latest sphere APK."
             }
             return Project(
                 j.getString("id"),

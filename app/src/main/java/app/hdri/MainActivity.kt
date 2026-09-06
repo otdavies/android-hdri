@@ -60,16 +60,16 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         setContent {
-            LumaTheme {
+            SphereTheme {
                 val vm: AppViewModel = viewModel()
-                LumaApp(vm)
+                SphereApp(vm)
             }
         }
     }
 }
 
 @Composable
-private fun LumaApp(vm: AppViewModel) {
+private fun SphereApp(vm: AppViewModel) {
     val app by vm.state.collectAsStateWithLifecycle()
     val processing by ProcessingService.status.collectAsStateWithLifecycle()
     val activity = LocalActivity.current as ComponentActivity
@@ -107,7 +107,7 @@ private fun LumaApp(vm: AppViewModel) {
             if (granted) launchCapture()
             else
                 vm.error(
-                    "Camera permission is needed to capture a photosphere. Enable it in Android Settings → Apps → Luma Sphere → Permissions."
+                    "Camera permission is needed to capture a photosphere. Enable it in Android Settings → Apps → sphere → Permissions."
                 )
         }
     fun startCapture(isResume: Boolean) {
@@ -133,8 +133,8 @@ private fun LumaApp(vm: AppViewModel) {
     fun export(p: Project, name: String) {
         pendingExport = p.id to name
         save.launch(
-            if (name.endsWith(".zip")) "luma-capture-${p.id.take(8)}.zip"
-            else "luma-${p.id.take(8)}-${name}"
+            if (name.endsWith(".zip")) "sphere-capture-${p.id.take(8)}.zip"
+            else "sphere-${p.id.take(8)}-${name}"
         )
     }
     val project = app.projects.firstOrNull { it.id == app.selected }
@@ -184,7 +184,7 @@ private fun LumaApp(vm: AppViewModel) {
                     )
             Screen.VIEWER ->
                 if (project != null)
-                    ViewerScreen(File(vm.store.dir(project.id), "preview.jpg")) {
+                    ViewerScreen(File(vm.store.dir(project.id), "environment.hdr"), project.name) {
                         vm.navigate(Screen.DETAIL)
                     }
         }
@@ -233,7 +233,7 @@ private fun Header(
         if (back != null) IconButton(back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
         else
             Icon(
-                Icons.Outlined.Public,
+                androidx.compose.ui.res.painterResource(R.drawable.ic_brand_mark),
                 null,
                 Modifier.padding(end = 10.dp).size(24.dp),
                 tint = Lime,
@@ -258,7 +258,7 @@ private fun Home(
     ) {
         item {
             Header(
-                "Luma Sphere",
+                "sphere",
                 trailing = {
                     Text("PREVIEW", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
                 },
@@ -266,16 +266,16 @@ private fun Home(
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Eyebrow("CAPTURE THE LIGHT AROUND YOU")
+                Eyebrow("LIGHT, TAKEN ON LOCATION")
                 Text(
-                    "One place.\nEvery direction.",
+                    "Bring the\nlight back.",
                     fontSize = 42.sp,
                     lineHeight = 46.sp,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = (-1.5).sp,
                 )
                 Text(
-                    "Turn a moment into a 360° HDR environment. Captured and stitched on your phone.",
+                    "Capture the whole light of a place. Build an HDR environment, check its reflections, and take it into your next shot.",
                     color = Muted,
                     fontSize = 16.sp,
                     lineHeight = 24.sp,
@@ -292,7 +292,12 @@ private fun Home(
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
                     Eyebrow("360° × 180°")
-                    Text("LOCAL CAPTURE", color = Muted, fontSize = 10.sp, letterSpacing = 1.5.sp)
+                    Text(
+                        "CAPTURE · CHECK · CARRY",
+                        color = Muted,
+                        fontSize = 10.sp,
+                        letterSpacing = 1.5.sp,
+                    )
                 }
             }
         }
@@ -399,7 +404,7 @@ private fun Setup(
         )
         InfoCard(
             "01  Pivot, don’t walk",
-            "Rotate the phone around its main camera. Keep nearby objects at least a metre away to reduce double edges.",
+            "Wipe the main lens first. Rotate around that lens and keep nearby objects at least a metre away. Smudges can turn practical lights into broad glare.",
         )
         InfoCard(
             "02  Meet each dot",
@@ -575,7 +580,7 @@ private fun Details(
             ) {
                 Photo(File(dir, "preview.jpg"), Modifier.fillMaxSize())
                 Text(
-                    "Explore sphere ↗",
+                    "Check the light ↗",
                     Modifier.align(Alignment.BottomEnd)
                         .padding(12.dp)
                         .background(Ink.copy(alpha = .85f), RoundedCornerShape(20.dp))
@@ -799,65 +804,4 @@ private fun Photo(file: File, modifier: Modifier = Modifier) {
         Box(modifier.background(Panel), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
         }
-}
-
-@Composable
-private fun ViewerScreen(file: File, back: () -> Unit) {
-    var view by remember { mutableStateOf<SphereViewer?>(null) }
-    var ready by remember { mutableStateOf(false) }
-    val owner = LocalLifecycleOwner.current
-    DisposableEffect(owner) {
-        val observer = LifecycleEventObserver { _, e ->
-            if (e == Lifecycle.Event.ON_PAUSE) view?.onPause()
-            else if (e == Lifecycle.Event.ON_RESUME) view?.onResume()
-        }
-        owner.lifecycle.addObserver(observer)
-        onDispose {
-            owner.lifecycle.removeObserver(observer)
-            view?.onPause()
-        }
-    }
-    Box(Modifier.fillMaxSize()) {
-        AndroidView(
-            factory = { SphereViewer(it, file) { ready = true }.also { v -> view = v } },
-            modifier = Modifier.fillMaxSize(),
-        )
-        Row(
-            Modifier.fillMaxWidth()
-                .background(Ink.copy(alpha = .7f))
-                .statusBarsPadding()
-                .padding(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
-            Text("Explore the sphere", Modifier.weight(1f))
-            IconButton({ view?.reset() }) { Icon(Icons.Outlined.Refresh, "Reset view") }
-        }
-        Column(
-            Modifier.align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(24.dp)
-                .background(Ink.copy(alpha = .85f), RoundedCornerShape(24.dp))
-                .padding(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text("Drag to look around · JPEG preview", color = Muted, fontSize = 13.sp)
-            Row {
-                IconButton({ view?.look(-20.0, 0.0) }) {
-                    Icon(Icons.Outlined.ChevronLeft, "Look left")
-                }
-                IconButton({ view?.look(0.0, 20.0) }) {
-                    Icon(Icons.Outlined.KeyboardArrowUp, "Look up")
-                }
-                IconButton({ view?.look(0.0, -20.0) }) {
-                    Icon(Icons.Outlined.KeyboardArrowDown, "Look down")
-                }
-                IconButton({ view?.look(20.0, 0.0) }) {
-                    Icon(Icons.Outlined.ChevronRight, "Look right")
-                }
-            }
-        }
-        if (!ready)
-            LinearProgressIndicator(Modifier.align(Alignment.Center).fillMaxWidth().padding(40.dp))
-    }
 }

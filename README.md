@@ -1,10 +1,12 @@
-# Luma Sphere · Android HDRI
+# sphere · Android HDRI
+
+**Bring the light back.**
 
 A native, local-first Android app for guided spherical HDR photography. Built for testing on **Google Pixel 8**, with Kotlin, Jetpack Compose, ARCore, Camera2 and OpenCV. No backend, account, analytics or app Internet permission.
 
 ## Install
 
-Download **`hdri-0.1.0-preview.apk`** from the newest [GitHub Release](https://github.com/otdavies/android-hdri/releases). Open it on your phone and allow your browser or Files app to install this APK when Android asks. Future preview APKs install over the same application, preserving captures when the signing identity is retained.
+Download **`sphere-0.1.0-preview.apk`** from the newest [GitHub Release](https://github.com/otdavies/android-hdri/releases). Open it on your phone and allow your browser or Files app to install this APK when Android asks. Future preview APKs install over the same application, preserving captures when the signing identity is retained.
 
 Google Play Services for AR is currently used for camera preview and lens intrinsics and must be installed before offline capture. Guidance uses the phone’s fused gyroscope and gravity, not AR position tracking. The app checks this and can open the system installation flow. It does not use Cloud Anchors or upload photographs. Processing and the sample capture also work without ARCore.
 
@@ -14,7 +16,7 @@ Google Play Services for AR is currently used for camera preview and lens intrin
 2. Stay at one physical point. Pivot around the main camera lens, keeping objects at least a metre away where possible.
 3. Follow the directional glow and arrows to bring a guide dot into the ring. Small hand wobbles are okay: the ring fills and captures a bracket automatically. Turn/tilt indicators and optional leveling help with framing; **Capture now** is a fallback when aligned.
 4. Complete the sky, horizon and ground. Processing starts automatically with visible stages and a foreground notification.
-5. Review any clipping, motion or alignment concerns, explore the sphere, then save the Radiance `.hdr` or photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
+5. Tap **Check the light** to inspect chrome and 18% grey spheres under the captured HDRI. Rotate the light, adjust exposure or explore the HDR panorama, then save the Radiance `.hdr` or photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
 
 **Explore a sample capture** creates an analytic HDR light stage on the phone and runs it through the same image pipeline. It is useful for testing processing and export before a real capture.
 
@@ -30,7 +32,8 @@ Saved capture sessions survive app restarts. Returning to capture asks you to ma
 - RootSIFT/RANSAC overlap matching, joint rotation/focal refinement, consistency-checked local optical flow and bounded mesh warps.
 - Spherical inverse warping, graph-cut seam selection, float multiband blending, longitude wrapping and gap detection.
 - Bounded image sizes and tiled rendering, cancellation, thermal cooldown, storage checks and atomic manifests.
-- Relative linear RGB Radiance HDR export, tone-mapped JPEG with GPano metadata, interactive viewer and Android document export.
+- Relative linear RGB Radiance HDR export, tone-mapped JPEG with GPano metadata and Android document export.
+- True HDR lighting inspection: ideal mirror and 18% diffuse probes, solid-angle integration, shared exposure and on-demand OpenGL ES 3 rendering.
 
 ## Quality boundary
 
@@ -53,3 +56,5 @@ The first commit copied the Android workflow from `otdavies/route`. Routine main
 See [sky capture and fewer stops](docs/SKY-CAPTURE.md), [handheld capture update](docs/CAPTURE-UPDATE.md), [research and design](docs/RESEARCH.md), [architecture](docs/ARCHITECTURE.md), [validation results and screenshots](docs/VALIDATION.md), and [preview notes](docs/PREVIEW.md).
 
 Handheld stitching improvements, private replay instructions and measurements: [stitching update](docs/STITCHING-UPDATE.md).
+
+Brand, lighting reference and camera sharpness update: [sphere update](docs/SPHERE-UPDATE.md).

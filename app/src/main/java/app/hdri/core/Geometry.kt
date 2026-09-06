@@ -164,11 +164,25 @@ class SteadyGate(private val dwellNanos: Long = 450_000_000) {
             return 0.0
         }
         samples.addLast(Sample(now, q.normalized()))
-        while (samples.size > 1 && now - samples.first().time > 300_000_000) samples.removeFirst()
+        while (samples.size > 1 && now - samples.first().time > 450_000_000) samples.removeFirst()
         movementDegrees = samples.maxOf { q.angle(it.rotation) }
-        val settled = movementDegrees <= 2.2 && now - samples.first().time >= 100_000_000
-        // Brief wobbles gently unwind the ring instead of repeatedly sending it back to zero.
-        credit = (credit + if (settled) dt else -dt * .6).coerceIn(0.0, 1.0)
+        // A broad pose envelope accepts slow pans. Fit signed rotation over the whole
+        // window instead: oscillating hand tremor cancels, deliberate travel does not.
+        val anchor = samples.first()
+        val meanTime = samples.map { (it.time - anchor.time) / 1e9 }.average()
+        var variance = 0.0
+        var slope = V3.ZERO
+        samples.forEach {
+            val t = (it.time - anchor.time) / 1e9 - meanTime
+            val relative = anchor.rotation.inverse() * it.rotation
+            val sign = if (relative.w < 0) -1.0 else 1.0
+            slope += V3(relative.x, relative.y, relative.z) * (2 * 180 / PI * sign * t)
+            variance += t * t
+        }
+        val drift = slope.length() / variance.coerceAtLeast(1e-12)
+        val settled = movementDegrees <= 1.1 && drift <= .85 && now - anchor.time >= 300_000_000
+        // A moving phone cannot carry almost-complete shutter credit into a fresh stop.
+        credit = if (settled) (credit + dt).coerceAtMost(1.0) else 0.0
         reason = if (credit >= 1.0) HoldReason.READY else HoldReason.SETTLING
         return credit
     }
