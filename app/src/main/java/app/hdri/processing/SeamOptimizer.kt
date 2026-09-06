@@ -20,20 +20,33 @@ internal object SeamOptimizer {
     ) {
         val n = w * h
         val ids = IntArray(n) { -1 }
-        val gradients =
-            layers.map { l ->
-                FloatArray(n) { p ->
-                    val right = p / w * w + (p % w + 1) % w
-                    val down = min(n - 1, p + w)
-                    var value = 0f
-                    for (c in 0..2) value +=
-                        abs(l.rgb[p * 3 + c] - l.rgb[right * 3 + c]) +
-                            abs(l.rgb[p * 3 + c] - l.rgb[down * 3 + c])
-                    min(4f, value / 3)
+        // Only the active pair needs a gradient cache. Retaining one full map
+        // per photograph unnecessarily grows the live heap during graph cuts.
+        val gradientA = FloatArray(n)
+        val gradientB = FloatArray(n)
+        var activeA = -1
+        var activeB = -1
+        fun gradient(p: Int, label: Int): Float {
+            val cache =
+                when (label) {
+                    activeA -> gradientA
+                    activeB -> gradientB
+                    else -> null
                 }
-            }
+            if (cache != null && cache[p] >= 0f) return cache[p]
+            val l = layers[label]
+            val right = p / w * w + (p % w + 1) % w
+            val down = min(n - 1, p + w)
+            var value = 0f
+            for (c in 0..2) value +=
+                abs(l.rgb[p * 3 + c] - l.rgb[right * 3 + c]) +
+                    abs(l.rgb[p * 3 + c] - l.rgb[down * 3 + c])
+            val result = min(4f, value / 3)
+            if (cache != null) cache[p] = result
+            return result
+        }
         fun difference(p: Int, a: Int, b: Int): Float {
-            var value = .015f + .75f * max(gradients[a][p], gradients[b][p])
+            var value = .015f + .75f * max(gradient(p, a), gradient(p, b))
             for (c in 0..2) value += abs(layers[a].rgb[p * 3 + c] - layers[b].rgb[p * 3 + c])
             return min(value, 12f)
         }
@@ -55,6 +68,10 @@ internal object SeamOptimizer {
                 progress((pass + index.toDouble() / max(1, pairs.size)) / 2)
                 val a = pair / layers.size
                 val b = pair % layers.size
+                activeA = a
+                activeB = b
+                gradientA.fill(-1f)
+                gradientB.fill(-1f)
                 val la = layers[a]
                 val lb = layers[b]
                 val pixels = IntArray(n)

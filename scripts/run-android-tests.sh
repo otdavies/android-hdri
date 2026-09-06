@@ -25,8 +25,8 @@ import re,sys
 text=Path('verification/instrumentation.txt').read_text()
 ok=re.search(r'OK \((\d+) tests?\)',text)
 failed=any(s in text for s in ['FAILURES!!!','INSTRUMENTATION_FAILED','Process crashed','INSTRUMENTATION_STATUS_CODE: -2'])
-if not ok or int(ok.group(1))<25 or failed:
-    print('The twenty-five required installed-APK tests did not all pass.',file=sys.stderr)
+if not ok or int(ok.group(1))<26 or failed:
+    print('The twenty-six required installed-APK tests did not all pass.',file=sys.stderr)
     sys.exit(1)
 print(f'Verified {ok.group(1)} tests against the release APK.')
 PY

@@ -86,3 +86,11 @@ python3 scripts/replay.py /private/capture.zip --work-dir /private/replay --expo
 ```
 
 Keep the work directory outside the public checkout. `HOST_SECONDS` measures processing; `EXR_EXPORT_SECONDS` reports the subsequent export separately. The JPEG is a tone-mapped preview; the HDR and EXR retain the same relative linear lighting values, including the existing RGBE storage quantization. Rebuilding cannot recover information already clipped or blurred in the source photographs.
+
+### Release memory and lifecycle checks
+
+The final daylight replay took 38.18 host seconds versus 36.54 seconds for the previous processor, with another 0.74 seconds for EXR export. The full earlier 4K capture took 50.26 seconds of processing. These are single sequential host runs, not phone benchmarks.
+
+A constrained replay (`--heap-mib 192`) exposed an unnecessary all-view gradient allocation during seam optimization. Only the active image pair now retains gradient caches; fixed third-label gradients are evaluated as needed. The complete 41-view capture then finished within the 192 MiB Java heap limit, producing byte-identical JPEG and HDR output. Native OpenCV allocations are separate from this limit; it is not a claim of 192 MiB total process memory.
+
+Installed-APK testing also exposed a native DIS cleanup crash when matching exited before its first flow calculation. Cleanup now avoids that uninitialized path, input checkpoints are validated as float RGB, and an installed test exercises empty input and early cancellation. The registration fixture now supplies a real float checkpoint to the HDR-detail stage. Publication still requires the complete installed-app suite, including these paths.

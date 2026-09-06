@@ -18,6 +18,7 @@ internal object LocalAlignment {
         val lenses = mutableListOf<Lens>()
         val observations = mutableListOf<Observation>()
         val flow = DISOpticalFlow.create(DISOpticalFlow.PRESET_FAST)
+        var flowInitialized = false
         val clahe = Imgproc.createCLAHE(2.0, Size(8.0, 8.0))
         try {
             frames.forEach { f ->
@@ -87,6 +88,7 @@ internal object LocalAlignment {
                     for (p in bytes.indices) if (mx[p] < 0) bytes[p] = arrays[a][p]
                     warped.put(0, 0, bytes)
                     flow.calc(images[a], warped, forward)
+                    flowInitialized = true
                     check()
                     flow.calc(warped, images[a], backward)
                     val ab = FloatArray(w * h * 2)
@@ -147,7 +149,9 @@ internal object LocalAlignment {
             return observations
         } finally {
             images.forEach { it.release() }
-            flow.collectGarbage()
+            // OpenCV 4.12's Android DIS cleanup can crash before its first calc.
+            // Cancellation, invalid input, and empty overlap sets all take this path.
+            if (flowInitialized) flow.collectGarbage()
             flow.clear()
             clahe.collectGarbage()
             clahe.clear()

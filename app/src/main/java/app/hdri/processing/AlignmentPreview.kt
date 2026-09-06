@@ -13,6 +13,9 @@ internal object AlignmentPreview {
         val source = FloatImages.read(file)
         val small = Mat()
         try {
+            require(!source.empty() && source.type() == CvType.CV_32FC3) {
+                "The alignment checkpoint is not a three-channel float image. Rebuild the sphere."
+            }
             val scale = min(1.0, maxEdge.toDouble() / max(source.cols(), source.rows()))
             Imgproc.resize(
                 source,

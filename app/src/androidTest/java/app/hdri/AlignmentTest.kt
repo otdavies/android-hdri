@@ -5,6 +5,7 @@ import app.hdri.core.*
 import app.hdri.data.Capture
 import app.hdri.processing.*
 import java.io.File
+import java.util.concurrent.CancellationException
 import kotlin.math.*
 import kotlin.random.Random
 import org.junit.Assert.*
@@ -81,11 +82,21 @@ class AlignmentTest {
                     )
                     val file = File(dir, "$i.jpg")
                     assertTrue(Imgcodecs.imwrite(file.path, image))
+                    val hdr = File(dir, "$i.f32")
+                    val linear = Mat()
+                    try {
+                        image.convertTo(linear, CvType.CV_32FC3, 1.0 / 255)
+                        val pixels = FloatArray(actual.width * actual.height * 3)
+                        linear.get(0, 0, pixels)
+                        FloatImages.write(hdr, actual.width, actual.height, pixels)
+                    } finally {
+                        linear.release()
+                    }
                     frames +=
                         Prepared(
                             Capture(i, prior, V3.ZERO, recorded, emptyList()),
                             recorded,
-                            file,
+                            hdr,
                             file,
                         )
                 } finally {
@@ -106,6 +117,23 @@ class AlignmentTest {
         } finally {
             texture.release()
             dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun localMatchingHandlesEmptyInputAndEarlyCancellationWithoutNativeCrash() {
+        assertTrue(OpenCVLoader.initLocal())
+        assertTrue(LocalAlignment.matches(emptyList(), {}, {}).isEmpty())
+        val lens = Lens(600, 450, 440.0, 440.0, 300.0, 225.0)
+        val frame =
+            Prepared(
+                Capture(0, Q.look(0.0, 0.0), V3.ZERO, lens, emptyList()),
+                lens,
+                File("unused.f32"),
+                File("unused.jpg"),
+            )
+        assertThrows(CancellationException::class.java) {
+            LocalAlignment.matches(listOf(frame), {}, { throw CancellationException() })
         }
     }
 
