@@ -23,7 +23,7 @@ class StorageTest {
         get() = SessionStore(context)
 
     private fun fixture(): Project {
-        val p = store.create(Quality.QUICK)
+        val p = store.create(Quality.QUICK, masterFormat = MasterFormat.HDR)
         val dir = store.dir(p.id)
         val exposures =
             (0..2).map { i ->
@@ -163,6 +163,91 @@ class StorageTest {
             json.remove("sourcesRemoved")
             assertFalse(SessionStore.decode(json).sourcesRemoved)
             store.requireSources(p.id)
+        } finally {
+            store.delete(p.id)
+        }
+    }
+
+    @Test
+    fun canonicalMasterMigrationIsVerifiedAndSurvivesCancellation() {
+        val p = fixture()
+        val dir = store.dir(p.id)
+        try {
+            val original = store.masterFile(p).readBytes()
+            assertThrows(CancellationException::class.java) {
+                store.replaceMaster(
+                    p.id,
+                    MasterFormat.EXR,
+                    { _, target -> target.writeBytes(byteArrayOf(1, 2, 3)) },
+                    { throw CancellationException() },
+                )
+            }
+            assertEquals(MasterFormat.HDR, store.read(p.id).masterFormat)
+            assertArrayEquals(original, store.masterFile(p).readBytes())
+            assertFalse(File(dir, "environment.partial.exr").exists())
+            val before = app.hdri.processing.EnvironmentIO.read(store.masterFile(p))
+            store.replaceMaster(
+                p.id,
+                MasterFormat.EXR,
+                { source, target ->
+                    app.hdri.processing.EnvironmentIO.convert(source, target, {}, {})
+                },
+            )
+            val saved = store.read(p.id)
+            val after = app.hdri.processing.EnvironmentIO.read(store.masterFile(saved))
+            try {
+                assertEquals(
+                    0.0,
+                    org.opencv.core.Core.norm(before, after, org.opencv.core.Core.NORM_INF),
+                    0.0,
+                )
+            } finally {
+                before.release()
+                after.release()
+            }
+            assertFalse(File(dir, "environment.hdr").exists())
+            store.clearProcessingFiles(p.id)
+            store.removeSources(p.id)
+            val export = File(context.cacheDir, "master-roundtrip.hdr")
+            try {
+                app.hdri.processing.EnvironmentIO.convert(store.masterFile(saved), export, {}, {})
+                assertTrue(export.length() > 100)
+            } finally {
+                export.delete()
+            }
+            assertEquals(
+                store.masterFile(saved).length(),
+                store.storage(store.read(p.id)).environment,
+            )
+        } finally {
+            store.delete(p.id)
+        }
+    }
+
+    @Test
+    fun cleanupFindsAbandonedPhotosAndDuplicateMasterWithoutTouchingDeclaredSources() {
+        val p = fixture()
+        val dir = store.dir(p.id)
+        try {
+            val orphan = File(dir, "8-123456789012345.jpg").apply { writeBytes(ByteArray(125)) }
+            val partial =
+                File(dir, "9-123456789012345.jpg.part").apply { writeBytes(ByteArray(50)) }
+            val duplicate = File(dir, "environment.exr").apply { writeBytes(ByteArray(200)) }
+            assertEquals(1375L, store.storage(p).processing)
+            val bundle = store.bundleFiles(p)
+            assertFalse(orphan in bundle)
+            assertFalse(partial in bundle)
+            assertFalse(duplicate in bundle)
+            store.clearProcessingFiles(p.id)
+            assertFalse(orphan.exists())
+            assertFalse(partial.exists())
+            assertFalse(duplicate.exists())
+            store.requireSources(p.id)
+            assertEquals(0L, store.storage(store.read(p.id)).processing)
+            assertEquals(
+                dir.walkTopDown().filter { it.isFile }.sumOf { it.length() },
+                store.storage(p).total,
+            )
         } finally {
             store.delete(p.id)
         }

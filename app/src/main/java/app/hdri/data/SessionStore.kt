@@ -17,6 +17,22 @@ enum class Quality(val outputWidth: Int, val bracketCount: Int, val label: Strin
     DETAIL(4096, 5, "4K · 5 exposures"),
 }
 
+enum class MasterFormat(val filename: String, val label: String) {
+    EXR("environment.exr", "OpenEXR · compressed"),
+    HDR("environment.hdr", "Radiance HDR"),
+}
+
+enum class GroundMode(val label: String, val minPitch: Double) {
+    CAPTURE("Capture the ground", -90.0),
+    FILL("Fill below me", -55.0),
+}
+
+enum class CoverageDensity(val label: String, val margin: Double) {
+    COMPACT("Compact", 6.75),
+    STANDARD("More overlap", 10.0),
+    EXTRA("Most overlap", 13.0),
+}
+
 data class Exposure(val file: String, val timeNs: Long, val iso: Int, val timestamp: Long) {
     val seconds
         get() = timeNs / 1e9 * iso / 100.0
@@ -47,9 +63,19 @@ data class Project(
     val sample: Boolean = false,
     val coverageVersion: Int = 0,
     val sourcesRemoved: Boolean = false,
+    val masterFormat: MasterFormat = MasterFormat.HDR,
+    val groundMode: GroundMode = GroundMode.CAPTURE,
+    val cameraKey: String = "main",
+    val density: CoverageDensity = CoverageDensity.COMPACT,
 )
 
-data class CaptureStorage(val sources: Long, val processing: Long, val other: Long) {
+data class CaptureStorage(
+    val sources: Long,
+    val processing: Long,
+    val other: Long,
+    val environment: Long = 0,
+    val preview: Long = 0,
+) {
     val total
         get() = sources + processing + other
 }
@@ -66,7 +92,14 @@ class SessionStore(context: Context) {
         return File(root, id).apply { mkdirs() }
     }
 
-    fun create(quality: Quality, sample: Boolean = false): Project =
+    fun create(
+        quality: Quality,
+        sample: Boolean = false,
+        masterFormat: MasterFormat = MasterFormat.EXR,
+        groundMode: GroundMode = GroundMode.CAPTURE,
+        cameraKey: String = "main",
+        density: CoverageDensity = CoverageDensity.COMPACT,
+    ): Project =
         synchronized(lock) {
             val p =
                 Project(
@@ -75,6 +108,10 @@ class SessionStore(context: Context) {
                     if (sample) "Sample photosphere" else "Untitled sphere",
                     quality,
                     sample = sample,
+                    masterFormat = masterFormat,
+                    groundMode = groundMode,
+                    cameraKey = cameraKey,
+                    density = density,
                 )
             save(p)
             p
@@ -181,12 +218,89 @@ class SessionStore(context: Context) {
                     val name = f.relativeTo(directory).invariantSeparatorsPath
                     when {
                         name in sourceNames -> sources += f.length()
-                        name.startsWith("processed/") -> processing += f.length()
+                        name.startsWith("processed/") || recoverable(p, name) ->
+                            processing += f.length()
                         else -> other += f.length()
                     }
                 }
             }
-        return CaptureStorage(sources, processing, other)
+        return CaptureStorage(
+            sources,
+            processing,
+            other,
+            masterFile(p).length(),
+            File(directory, "preview.jpg").length(),
+        )
+    }
+
+    /** Commit a verified replacement before changing the manifest or removing the old master. */
+    fun replaceMaster(
+        id: String,
+        format: MasterFormat,
+        convert: (File, File) -> Unit,
+        checkCancelled: () -> Unit = {},
+    ) =
+        withFiles(id) {
+            val p = read(id)
+            check(p.state in listOf("ready", "review")) { "Finish processing first." }
+            if (p.masterFormat == format) return@withFiles
+            val original = masterFile(p)
+            val temp =
+                File(dir(id), "environment.partial.${format.filename.substringAfterLast('.')}")
+            val destination = File(dir(id), format.filename)
+            require(
+                !Files.isSymbolicLink(original.toPath()) &&
+                    !Files.isSymbolicLink(temp.toPath()) &&
+                    !Files.isSymbolicLink(destination.toPath())
+            )
+            checkSpace(
+                id,
+                p.quality.outputWidth.toLong() * p.quality.outputWidth / 2 * 13 + 2_000_000,
+            )
+            try {
+                convert(original, temp)
+                checkCancelled()
+                check(temp.length() > 0 && temp.renameTo(destination)) {
+                    "Could not commit the converted master. Original retained."
+                }
+                update(id) { it.copy(masterFormat = format) }
+                check(!original.exists() || original.delete()) {
+                    "Conversion succeeded; clear processing files to remove the old master."
+                }
+            } finally {
+                temp.delete()
+            }
+        }
+
+    fun groundNote(p: Project): String =
+        if (p.groundMode == GroundMode.FILL)
+            "Ground below -55 degrees is synthesized from nearby colour and texture; not measured scene detail."
+        else ""
+
+    fun masterFile(p: Project): File = File(dir(p.id), p.masterFormat.filename)
+
+    fun bundleFiles(p: Project): List<File> =
+        (sourceFiles(p) +
+                listOf("session.json", "report.json", "preview.jpg", p.masterFormat.filename).map {
+                    File(dir(p.id), it)
+                })
+            .filter { it.isFile }
+            .onEach { require(!Files.isSymbolicLink(it.toPath())) }
+
+    private fun recoverable(p: Project, name: String): Boolean {
+        val declared = p.captures.flatMap { it.exposures }.any { it.file == name }
+        return !declared &&
+            (name.matches(Regex("[0-9]+-[0-9]{8,}\\.jpg(?:\\.part)?")) ||
+                name in
+                    listOf(
+                        "environment.partial.hdr",
+                        "environment.partial.exr",
+                        "preview.partial.jpg",
+                    ) ||
+                (p.state in listOf("ready", "review") &&
+                    name != p.masterFormat.filename &&
+                    MasterFormat.entries.any { it.filename == name } &&
+                    masterFile(p).length() > 0))
     }
 
     fun clearProcessingFiles(
@@ -200,12 +314,16 @@ class SessionStore(context: Context) {
             }
             val cache = File(dir(id), "processed")
             require(!Files.isSymbolicLink(cache.toPath())) { "Invalid processing directory." }
+            val p = read(id)
             val files =
                 cache
                     .walkTopDown()
                     .onEnter { !Files.isSymbolicLink(it.toPath()) }
                     .filter { it.isFile }
-                    .toList()
+                    .toList() +
+                    (dir(id).listFiles()?.filter {
+                        it.isFile && !Files.isSymbolicLink(it.toPath()) && recoverable(p, it.name)
+                    } ?: emptyList())
             removeFiles(files, progress, checkCancelled)
             cache
                 .walkBottomUp()
@@ -221,7 +339,7 @@ class SessionStore(context: Context) {
                 "Finish processing before removing source photos."
             }
             check(
-                listOf("environment.hdr", "preview.jpg").all {
+                listOf(p.masterFormat.filename, "preview.jpg").all {
                     File(dir(id), it).let { f -> f.isFile && f.length() > 0 }
                 }
             ) {
@@ -283,6 +401,10 @@ class SessionStore(context: Context) {
                 .put("created", p.created)
                 .put("name", p.name)
                 .put("quality", p.quality.name)
+                .put("masterFormat", p.masterFormat.name)
+                .put("groundMode", p.groundMode.name)
+                .put("cameraKey", p.cameraKey)
+                .put("density", p.density.name)
                 .put("state", p.state)
                 .put("stage", p.stage)
                 .put("progress", p.progress)
@@ -388,6 +510,10 @@ class SessionStore(context: Context) {
                 j.optBoolean("sample"),
                 j.optInt("coverageVersion", 0),
                 j.optBoolean("sourcesRemoved", false),
+                MasterFormat.valueOf(j.optString("masterFormat", "HDR")),
+                GroundMode.valueOf(j.optString("groundMode", "CAPTURE")),
+                j.optString("cameraKey", "main"),
+                CoverageDensity.valueOf(j.optString("density", "COMPACT")),
             )
         }
     }

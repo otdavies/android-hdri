@@ -201,9 +201,20 @@ class HdrPipeline(
                 frames,
                 { stage, p -> progress(stage, .51 + .09 * p) },
                 checkCancelled,
+                project.groundMode.minPitch,
             )
         finishStage("seams")
-        val missing = seams.labels.count { it < 0 }.toDouble() / seams.labels.size
+        val measured =
+            seams.labels.indices.filter { i ->
+                Sphere.ray(
+                        (i % seams.width) + .5,
+                        (i / seams.width) + .5,
+                        seams.width,
+                        seams.height,
+                    )
+                    .y >= sin(Math.toRadians(project.groundMode.minPitch))
+            }
+        val missing = measured.count { seams.labels[it] < 0 }.toDouble() / measured.size
         if (missing > .002) {
             if (!project.sample) {
                 val extra =
@@ -226,6 +237,7 @@ class HdrPipeline(
                 "A small unmeasured area (${String.format(java.util.Locale.getDefault(),"%.2f",missing*100)}%) remains. Inspect the poles before using this environment."
         val tempHdr = File(dir, "environment.partial.hdr")
         val tempJpg = File(dir, "preview.partial.jpg")
+        val tempExr = File(dir, "environment.partial.exr")
         try {
             val render =
                 SphericalBlend.render(
@@ -238,6 +250,21 @@ class HdrPipeline(
                     checkCancelled,
                 )
             finishStage("render")
+            if (project.groundMode == GroundMode.FILL) {
+                GroundFill.rewrite(
+                    tempHdr,
+                    tempJpg,
+                    seams.exposure,
+                    { p ->
+                        progress(
+                            "Filling the ground · approximate colour and texture",
+                            .97 + .009 * p,
+                        )
+                    },
+                    checkCancelled,
+                )
+                finishStage("groundFill")
+            }
             progress("Writing export metadata", .98)
             checkCancelled()
             addPhotoSphereMetadata(
@@ -245,8 +272,21 @@ class HdrPipeline(
                 project.quality.outputWidth,
                 project.quality.outputWidth / 2,
             )
+            val master =
+                if (project.masterFormat == app.hdri.data.MasterFormat.EXR) {
+                    EnvironmentIO.convert(
+                        tempHdr,
+                        tempExr,
+                        { p ->
+                            progress("Compressing and verifying the HDR master", .98 + .009 * p)
+                        },
+                        checkCancelled,
+                        store.groundNote(project),
+                    )
+                    tempExr
+                } else tempHdr
             check(
-                tempHdr.renameTo(File(dir, "environment.hdr")) &&
+                master.renameTo(store.masterFile(project)) &&
                     tempJpg.renameTo(File(dir, "preview.jpg"))
             ) {
                 "Could not finalize HDR exports. Free storage and retry."
@@ -255,6 +295,14 @@ class HdrPipeline(
                 .writeText(
                     JSONObject()
                         .put("pipelineVersion", 3)
+                        .put("masterFormat", project.masterFormat.name)
+                        .put("groundMode", project.groundMode.name)
+                        .put(
+                            "syntheticGroundBelowPitch",
+                            if (project.groundMode == GroundMode.FILL) project.groundMode.minPitch
+                            else JSONObject.NULL,
+                        )
+                        .put("previewExposure", seams.exposure)
                         .put(
                             "cameraResponse",
                             if (project.sample) "inverse sRGB (sample)"
@@ -330,6 +378,14 @@ class HdrPipeline(
             // Outputs and completion state are committed before pruning. A cleanup
             // failure must not turn a finished panorama into a failed build.
             try {
+                app.hdri.data.MasterFormat.entries
+                    .filter { it != project.masterFormat }
+                    .forEach {
+                        val old = File(dir, it.filename)
+                        check(!old.exists() || old.delete()) {
+                            "An older master could not be removed."
+                        }
+                    }
                 store.clearProcessingFiles(
                     project.id,
                     { progress("Clearing processing files", .99 + .009 * it) },
@@ -345,6 +401,7 @@ class HdrPipeline(
         } finally {
             tempHdr.delete()
             tempJpg.delete()
+            tempExr.delete()
         }
     }
 

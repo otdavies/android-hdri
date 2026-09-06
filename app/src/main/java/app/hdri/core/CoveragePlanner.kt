@@ -58,7 +58,7 @@ class PhotoFootprint(val rotation: Q, val lens: Lens) {
 }
 
 object CoveragePlanner {
-    const val VERSION = 2
+    const val VERSION = 3
     // Six degrees of aim hysteresis + .75° for the <= .71° radius of a one-degree cell.
     const val PLAN_MARGIN = 6.75
     private val probeRays by lazy {
@@ -69,6 +69,15 @@ object CoveragePlanner {
         }
     }
 
+    private fun requiredMask(minPitch: Double) =
+        BitSet(probeRays.size).apply {
+            val y = sin(Math.toRadians(minPitch))
+            probeRays.forEachIndexed { i, ray -> if (ray.y >= y - 1e-9) set(i) }
+        }
+
+    private fun covers(coverage: BitSet, required: BitSet): Boolean =
+        (required.clone() as BitSet).apply { andNot(coverage) }.isEmpty
+
     private fun mask(footprints: List<PhotoFootprint>, margin: Double): BitSet =
         BitSet(probeRays.size).apply {
             probeRays.forEachIndexed { i, ray ->
@@ -76,13 +85,18 @@ object CoveragePlanner {
             }
         }
 
-    private fun plannedMask(target: Target, lens: Lens, cameraInDisplay: Q): BitSet {
+    private fun plannedMask(
+        target: Target,
+        lens: Lens,
+        cameraInDisplay: Q,
+        margin: Double = PLAN_MARGIN,
+    ): BitSet {
         // The level indicator is a suggestion, not another shutter lock. Allow ten degrees
         // of handset roll. At poles the phone is free to rotate through the full circle.
         val footprint = PhotoFootprint(Q.look(target.yaw, target.pitch) * cameraInDisplay, lens)
         return BitSet(probeRays.size).apply {
             probeRays.forEachIndexed { i, ray ->
-                if (footprint.containsWithRoll(ray, PLAN_MARGIN, abs(target.pitch) > 89)) set(i)
+                if (footprint.containsWithRoll(ray, margin, abs(target.pitch) > 89)) set(i)
             }
         }
     }
@@ -95,15 +109,19 @@ object CoveragePlanner {
     fun targets(
         lens: Lens,
         cameraInDisplay: Q = Q(),
+        margin: Double = PLAN_MARGIN,
+        minPitch: Double = -90.0,
         progress: (Double) -> Unit = {},
     ): List<Target> {
-        require(lens.fovX in 30.0..110.0 && lens.fovY in 30.0..110.0)
+        require(lens.fovX in 30.0..140.0 && lens.fovY in 30.0..140.0)
+        require(margin in PLAN_MARGIN..13.0 && minPitch in -90.0..-45.0)
+        val required = requiredMask(minPitch)
         val (hx, hy) = PhotoFootprint(Q(), lens).halfAngles()
         val quarterTurn = abs(cameraInDisplay.rotate(V3(1.0, 0.0, 0.0)).y) > .5
         val h = if (quarterTurn) hy else hx
         val v = if (quarterTurn) hx else hy
-        val firstN = ceil(360 / (2 * (h - PLAN_MARGIN))).toInt()
-        val firstLevel = max(2, floor(90 / (2 * (v - PLAN_MARGIN))).toInt())
+        val firstN = ceil(360 / (2 * (h - margin))).toInt()
+        val firstLevel = max(2, floor(90 / (2 * (v - margin))).toInt())
         val plans =
             buildList {
                     for (levels in firstLevel..firstLevel + 2) for (factor in
@@ -118,22 +136,31 @@ object CoveragePlanner {
                         if (pitches.any { abs(it) > 90 }) continue
                         add(
                             buildList {
-                                pitches.forEach { pitch ->
-                                    val count =
-                                        if (abs(pitch) == 90.0) 1
-                                        else
-                                            ceil(n * cos(Math.toRadians(max(0.0, abs(pitch) - v))))
-                                                .toInt()
-                                    for (i in 0 until count) add(
-                                        Target(
-                                            size,
-                                            (i +
-                                                if (pitch == 0.0 || abs(pitch) == 90.0) 0.0
-                                                else .5) * 360 / count,
-                                            pitch,
+                                pitches
+                                    .filter { it >= minPitch }
+                                    .forEach { pitch ->
+                                        val count =
+                                            if (abs(pitch) == 90.0) 1
+                                            else
+                                                ceil(
+                                                        n *
+                                                            cos(
+                                                                Math.toRadians(
+                                                                    max(0.0, abs(pitch) - v)
+                                                                )
+                                                            )
+                                                    )
+                                                    .toInt()
+                                        for (i in 0 until count) add(
+                                            Target(
+                                                size,
+                                                (i +
+                                                    if (pitch == 0.0 || abs(pitch) == 90.0) 0.0
+                                                    else .5) * 360 / count,
+                                                pitch,
+                                            )
                                         )
-                                    )
-                                }
+                                    }
                             }
                         )
                     }
@@ -149,12 +176,12 @@ object CoveragePlanner {
                 union.or(
                     cache.getOrPut(key) {
                         BitSet(probeRays.size).apply {
-                            ring.forEach { or(plannedMask(it, lens, cameraInDisplay)) }
+                            ring.forEach { or(plannedMask(it, lens, cameraInDisplay, margin)) }
                         }
                     }
                 )
             }
-            if (union.cardinality() == probeRays.size) {
+            if (covers(union, required)) {
                 progress(1.0)
                 return plan
             }
@@ -168,16 +195,19 @@ object CoveragePlanner {
         lens: Lens,
         cameraInDisplay: Q,
         saved: List<PhotoFootprint>,
+        margin: Double = PLAN_MARGIN,
+        minPitch: Double = -90.0,
     ): List<Target> {
         if (saved.isEmpty()) return planned
+        val required = requiredMask(minPitch)
         val covered = BitSet(probeRays.size)
         saved.forEach { covered.or(mask(listOf(it), 2.0)) }
-        val masks = planned.map { plannedMask(it, lens, cameraInDisplay) }
+        val masks = planned.map { plannedMask(it, lens, cameraInDisplay, margin) }
         val retained = planned.indices.toMutableSet()
         for (i in planned.indices.reversed()) {
             val union = covered.clone() as BitSet
             retained.forEach { if (it != i) union.or(masks[it]) }
-            if (union.cardinality() == probeRays.size) retained.remove(i)
+            if (covers(union, required)) retained.remove(i)
         }
         return planned.filterIndexed { i, _ -> i in retained }
     }

@@ -1,10 +1,10 @@
 package app.hdri.ui
 
 import app.hdri.core.LightingMap
+import app.hdri.processing.EnvironmentIO
 import java.io.File
 import org.opencv.android.OpenCVLoader
 import org.opencv.core.*
-import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 
 internal data class LightingEnvironment(
@@ -16,7 +16,7 @@ internal data class LightingEnvironment(
         fun load(file: File, progress: (String, Float) -> Unit): LightingEnvironment {
             progress("Reading HDR radiance", .05f)
             check(OpenCVLoader.initLocal()) { "The HDR reader could not start." }
-            val source = Imgcodecs.imread(file.path, Imgcodecs.IMREAD_UNCHANGED)
+            val source = EnvironmentIO.read(file)
             val reduced = Mat()
             try {
                 check(
@@ -62,7 +62,9 @@ internal data class LightingEnvironment(
                 return LightingEnvironment(
                     map,
                     diffuse,
-                    (1.0 / map.meanLuminance().coerceAtLeast(1e-12)).toFloat(),
+                    // Meter the light received by a diffuse reference, not the raw
+                    // panorama's arithmetic mean (which is dominated by light sources).
+                    (1.0 / diffuse.geometricMeanLuminance().coerceAtLeast(1e-12)).toFloat(),
                 )
             } finally {
                 source.release()

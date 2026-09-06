@@ -1,22 +1,22 @@
-# sphere 0.1.0 · handheld stitching preview
+# sphere 0.1.0 · lighting and field workflow preview
 
-Download **sphere-0.1.0-preview.apk** and open it on your Pixel 8. It updates the existing app in place and preserves saved captures. Choose **Rebuild from saved photos** on an existing capture to use the updated processor; its source photos must still be present.
+Download **sphere-0.1.0-preview.apk** and open it on your Pixel 8. It updates the existing app and preserves saved captures.
 
 ## New in this preview
 
-- Recover texture lost to the old scene-estimated HDR response curve by inverting the fixed Camera2 tone curve.
-- Fit overlapping views jointly with bounded local warps to accommodate the moving camera position during normal turning with the feet.
-- Correct exposure and lens-shading differences using corresponding overlap samples, with withheld-sample validation and bounded corrections.
-- Improve multi-image seam costs and preserve measured image coverage.
-- Bound gradient-cache memory and stream float checkpoints in small row blocks. Both supplied 41-view captures rebuild under a 192 MiB Java heap limit in host replay; native OpenCV memory is separate.
-- Handle cancellation or missing alignment input before the first native flow calculation safely.
+- A physically correct 18% grey reference with clearer exposure: meter received diffuse light, use the capture exposure, or inspect HDR at 1×. Reference sRGB is the default; Reinhard and an environment background are optional.
+- Pinch and button zoom from 0.5× to 4× in **Explore HDR**.
+- **Fill below me** skips the straight-down photo and fills the bottom 35° with approximate surrounding ground colour and texture. Synthetic ground is identified in the app and exports.
+- Discovered rear lenses, including eligible ultrawide lenses, use native Camera2 with their own calibration and fixed physical-camera selection. Compact and higher-overlap pace choices recalculate the required stops.
+- **One HDR master**: choose compressed EXR or Radiance HDR before capture. The other export format is converted only when requested. Existing captures can **Store as EXR** or **Store as HDR** in Storage.
+- Clearer storage accounting, cleanup of abandoned photos and duplicate outputs, and a button to clear temporary exports. Removing original source photos remains optional and requires confirmation.
 
-The completed capture still offers **Lighting spheres**, chrome and 18% grey lighting references, storage breakdown and optional source-photo removal, and JPEG / Radiance HDR / OpenEXR exports. Everything runs locally.
+On the supplied captures, explicit cleanup leaves about **5.1 MB for the 2K ground-filled capture** and **17.4 MB for the 4K capture**, including preview and metadata. Size varies with image content. Installed app and native-library size is separate from each capture.
 
-## Quality and verification
+## Verification and limits
 
-On the supplied daylight capture, median withheld overlap brightness disagreement falls from 0.103 to 0.043 EV. Grey texture loss is substantially reduced. Curtain and ceiling joins remain visible, and this update does not yet reach the requested Google Photo Sphere quality bar. The supplied capture is treated as average-to-good handheld input; extra aiming pauses do not solve between-view parallax.
+CI tests the exact signed APK before publication, with 32 JVM checks and a gate of 30 installed-app tests, plus independent OpenEXR decoding. Real-input host replays also exercise EXR masters and cleanup under a 192 MiB Java heap limit.
 
-Relative lighting values come from processed JPEG brackets. EXR preserves the saved HDR values; it does not recover clipped or blurred source detail or create calibrated photometric units.
+Ultrawide capture still needs a Pixel 8 hardware check: Android does not guarantee every physical-camera JPEG stream combination. Unsupported lenses fail visibly without silently switching cameras. Ground fill is an approximation. Lighting values remain relative, not calibrated lux; EXR conversion cannot restore clipped source detail or lost precision.
 
-See [research, experiments, measurements and release verification](https://github.com/otdavies/android-hdri/blob/main/docs/HANDHELD-STITCHING.md). CI tests the exact signed APK before publication, including the physical-orbit fixture, native cleanup paths, storage operations, lighting controls and independent OpenEXR decoding.
+See [implementation, measurements and primary sources](https://github.com/otdavies/android-hdri/blob/main/docs/FIELD-WORKFLOW.md).

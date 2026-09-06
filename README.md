@@ -6,19 +6,19 @@ A native, local-first Android app for guided spherical HDR photography. Built fo
 
 Download **`sphere-0.1.0-preview.apk`** from the newest [GitHub Release](https://github.com/otdavies/android-hdri/releases). Open it on your phone and allow your browser or Files app to install this APK when Android asks. Future preview APKs install over the same application, preserving captures when the signing identity is retained.
 
-Google Play Services for AR is currently used for camera preview and lens intrinsics and must be installed before offline capture. Guidance uses the phone’s fused gyroscope and gravity, not AR position tracking. The app checks this and can open the system installation flow. It does not use Cloud Anchors or upload photographs. Processing and the sample capture also work without ARCore.
+The default main-camera preview uses Google Play Services for AR, which must be installed before offline capture. Other eligible lenses use native Camera2 and their own calibration. Guidance uses the phone’s fused gyroscope and gravity, not AR position tracking. The app checks this and can open the system installation flow. It does not use Cloud Anchors or upload photographs. Processing and the sample capture also work without ARCore.
 
 ## Capture and export
 
 1. Choose **New photosphere** and 2K / three exposures or 4K / five exposures.
-2. Wipe the main lens. Turn where you stand and tilt the phone normally; the camera is expected to move around you as you turn.
+2. Choose a camera lens, capture pace, ground mode and stored HDR format. Wipe the selected lens. Turn where you stand and tilt the phone normally; the camera is expected to move around you as you turn.
 3. Follow the directional glow and arrows to bring a guide dot into the ring. Small hand wobbles are okay: the ring fills and captures a bracket automatically. Turn/tilt indicators and optional leveling help with framing; **Capture now** is a fallback when aligned.
 4. Complete the sky, horizon and ground. Processing starts automatically with visible stages and a foreground notification.
-5. Tap **Lighting spheres** to inspect chrome and 18% grey spheres under the captured HDRI. Rotate the light, adjust exposure or explore the HDR panorama, then save the Radiance `.hdr` or photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
+5. Tap **Lighting spheres** to inspect chrome and 18% grey spheres under the captured HDRI. Rotate the light, choose an exposure reference or explore the HDR panorama with pinch zoom, then export `.exr`, `.hdr` or a photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
 
 **Explore a sample capture** creates an analytic HDR light stage on the phone and runs it through the same image pipeline. It is useful for testing processing and export before a real capture.
 
-Saved capture sessions survive app restarts. Returning to capture asks you to match a reference photograph to re-establish orientation at the same physical location. Interrupted processing restarts from valid HDR checkpoints. Original exposure JPEGs and metadata can be exported as a ZIP. Storage shows each capture’s size and a source / processing / export breakdown. Successful builds automatically clear intermediate float images. Removing source photos is optional, requires confirmation and keeps finished HDR/JPEG files and EXR export, but disables rebuilding. OpenEXR export uses lossless ZIP compression and 32-bit linear RGB; temporary export files are removed after saving or cancellation.
+Saved capture sessions survive app restarts. Returning to capture asks you to match a reference photograph to re-establish orientation at the same physical location. Interrupted processing restarts from valid HDR checkpoints. Original exposure JPEGs and metadata can be exported as a ZIP. Storage shows sources, processing files, the one HDR master, JPEG preview and metadata. New captures default to compressed EXR; choose Radiance HDR before capture or convert the retained master from Storage. Successful builds automatically clear intermediate float images. Removing source photos is optional, requires confirmation and keeps finished HDR/JPEG files and EXR export, but disables rebuilding. OpenEXR uses lossless ZIP compression and 32-bit linear RGB; the other HDR export format is converted on demand, and temporary export files are removed after saving or cancellation.
 
 ## What this preview implements
 
@@ -56,3 +56,5 @@ See [sky capture and fewer stops](docs/SKY-CAPTURE.md), [handheld capture update
 Handheld stitching improvements, private replay instructions and measurements: [stitching update](docs/STITCHING-UPDATE.md).
 
 Brand, lighting reference and camera sharpness update: [sphere update](docs/SPHERE-UPDATE.md).
+
+Lighting reference, zoom, lens selection, approximate ground fill and compact storage: [field workflow](docs/FIELD-WORKFLOW.md).

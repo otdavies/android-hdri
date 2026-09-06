@@ -109,6 +109,7 @@ internal object SphericalBlend {
         frames: List<Prepared>,
         progress: (String, Double) -> Unit,
         check: () -> Unit,
+        minPitch: Double = -90.0,
     ): SeamMap {
         val w = 512
         val h = 256
@@ -135,6 +136,8 @@ internal object SphericalBlend {
                 warp.image.release()
                 warp.validity.release()
                 for (i in 0 until n) {
+                    if (Sphere.ray(i % w + .5, i / w + .5, w, h).y < sin(Math.toRadians(minPitch)))
+                        weights[i] = 0f
                     if (weights[i] > scores[i]) {
                         scores[i] = weights[i]
                         labels[i] = index
@@ -164,6 +167,8 @@ internal object SphericalBlend {
         var count = 0
         val holes = mutableListOf<V3>()
         for (i in 0 until n) {
+            val ray = Sphere.ray((i % w) + .5, (i / w) + .5, w, h)
+            if (ray.y < sin(Math.toRadians(minPitch))) continue
             val label = labels[i]
             if (label >= 0) {
                 val l = layers[label]
@@ -174,7 +179,6 @@ internal object SphericalBlend {
                 logLum += ln(max(1e-6, lum))
                 count++
             } else if (i % 5 == 0) {
-                val ray = Sphere.ray((i % w) + .5, (i / w) + .5, w, h)
                 if (holes.size < 16 && holes.all { it.angle(ray) > 18 }) holes += ray
             }
         }

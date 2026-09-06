@@ -37,4 +37,17 @@ class LightingMapTest {
             assertEquals(0f, diffuse.rgb[(oy * 16 + ox) * 3 + 1], 0f)
         }
     }
+
+    @Test
+    fun greyReferenceMetersReceivedLightAndRetainsExposureRatios() {
+        for (level in listOf(.01f, 1f, 100f, 10000f)) {
+            val map = LightingMap(64, 32, FloatArray(64 * 32 * 3) { level })
+            val diffuse = map.diffuse(16, 8)
+            val scale = 1.0 / diffuse.geometricMeanLuminance()
+            val grey = .18 * diffuse.rgb[0] * scale
+            assertEquals(.18, grey, .001)
+            assertEquals(118.0, Radiance.srgb(grey) * 255, 1.0)
+            assertEquals(.36, grey * 2, .002)
+        }
+    }
 }

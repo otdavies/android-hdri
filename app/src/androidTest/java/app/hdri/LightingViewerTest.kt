@@ -86,6 +86,7 @@ class LightingViewerTest {
                     factory = {
                         SphereViewer(it, light, { ready.set(true) }, { error.set(it) }).also {
                             viewer = it
+                            it.linear = false
                         }
                     },
                     modifier = Modifier.fillMaxSize(),
@@ -210,7 +211,7 @@ class LightingViewerTest {
                         (frame.height / 2 - ny * radius).roundToInt(),
                     )
                 val outgoing = .18 * (1 + .6 * ny)
-                val mapped = outgoing / (1 + outgoing)
+                val mapped = outgoing
                 val expected = (255 * (1.055 * mapped.pow(1 / 2.4) - .055)).roundToInt()
                 measurements.put(
                     org.json
@@ -286,6 +287,10 @@ class LightingViewerTest {
             .performClick()
         rule.onNodeWithText("+1.0 EV").assertIsDisplayed()
         rule.onNodeWithText("Explore HDR").performClick()
+        rule.onNodeWithContentDescription("Zoom in").performScrollTo().performClick()
+        rule.onNodeWithText("1.3×").assertIsDisplayed()
+        rule.onNodeWithContentDescription("Zoom out").performClick()
+        rule.onNodeWithText("1.0×").assertIsDisplayed()
         rule.onNodeWithText("Lighting spheres").performClick()
         rule.onNodeWithContentDescription("Reset view and exposure").performClick()
         rule.onNodeWithText("+0.0 EV").assertIsDisplayed()
@@ -295,5 +300,63 @@ class LightingViewerTest {
         }
         screenshot.recycle()
         file.delete()
+    }
+
+    @Test
+    fun zoomChangesGpuFieldOfViewAndClampsInvalidRequests() {
+        val w = 256
+        val h = 128
+        val map =
+            LightingMap(
+                w,
+                h,
+                FloatArray(w * h * 3) { i ->
+                    (.35 + .25 * Sphere.ray(i / 3 % w + .5, i / 3 / w + .5, w, h).x).toFloat()
+                },
+            )
+        val light = LightingEnvironment(map, map.diffuse(), 1f)
+        val ready = AtomicBoolean(false)
+        val failure = AtomicReference<String?>(null)
+        lateinit var viewer: SphereViewer
+        rule.runOnUiThread {
+            rule.activity.setContent {
+                AndroidView(
+                    factory = {
+                        SphereViewer(it, light, { ready.set(true) }, { failure.set(it) }).also { v
+                            ->
+                            viewer = v
+                            v.probes = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+        }
+        rule.waitUntil(15000) { ready.get() || failure.get() != null }
+        assertNull(failure.get())
+        fun verify(zoom: Float) {
+            rule.runOnUiThread { viewer.setViewZoom(zoom) }
+            val px = (viewer.width * .85).toInt()
+            val nx = ((px + .5) / viewer.width * 2 - 1) * viewer.width / viewer.height * .7 / zoom
+            val value = .35 + .25 * nx / sqrt(1 + nx * nx)
+            val expected = (Radiance.srgb(value) * 255).roundToInt()
+            rule.waitUntil(5000) {
+                val image = pixels(viewer) ?: return@waitUntil false
+                val actual = Color.red(image.getPixel(px, image.height / 2))
+                image.recycle()
+                abs(expected - actual) <= 3
+            }
+        }
+        verify(.5f)
+        verify(1f)
+        verify(4f)
+        rule.runOnUiThread {
+            viewer.setViewZoom(100f)
+            assertEquals(4f, viewer.zoomFactor, 0f)
+            viewer.setViewZoom(Float.NaN)
+            assertEquals(4f, viewer.zoomFactor, 0f)
+            viewer.reset()
+            assertEquals(1f, viewer.zoomFactor, 0f)
+        }
     }
 }

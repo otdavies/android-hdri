@@ -5,7 +5,7 @@ import android.net.Uri
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.hdri.data.*
-import app.hdri.processing.ExrExport
+import app.hdri.processing.EnvironmentIO
 import app.hdri.processing.ProcessingService
 import java.io.File
 import java.util.zip.ZipEntry
@@ -31,6 +31,7 @@ data class AppState(
     val operationProgress: Float = 0f,
     val operationCancellable: Boolean = false,
     val storage: Map<String, CaptureStorage> = emptyMap(),
+    val exportCacheBytes: Long = 0,
 )
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -75,9 +76,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                 lastStorageRead = now
                                 projects.associate { it.id to store.storage(it) }
                             } else mutable.value.storage
+                        val exportBytes = exportCacheFiles().sumOf { it.length() }
                         currentCoroutineContext().ensureActive()
                         mutable.update {
-                            it.copy(projects = projects, loading = false, storage = usage)
+                            it.copy(
+                                projects = projects,
+                                loading = false,
+                                storage = usage,
+                                exportCacheBytes = exportBytes,
+                            )
                         }
                     } catch (e: CancellationException) {
                         throw e
@@ -105,11 +112,21 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         mutable.update { it.copy(error = message) }
     }
 
-    fun create(quality: Quality, sample: Boolean = false) {
+    fun create(
+        quality: Quality,
+        sample: Boolean = false,
+        masterFormat: MasterFormat = MasterFormat.EXR,
+        groundMode: GroundMode = GroundMode.CAPTURE,
+        cameraKey: String = "main",
+        density: CoverageDensity = CoverageDensity.COMPACT,
+    ) {
         viewModelScope.launch {
             mutable.update { it.copy(operation = "Creating capture", operationProgress = 0f) }
             try {
-                val p = withContext(Dispatchers.IO) { store.create(quality, sample) }
+                val p =
+                    withContext(Dispatchers.IO) {
+                        store.create(quality, sample, masterFormat, groundMode, cameraKey, density)
+                    }
                 mutable.update {
                     it.copy(
                         selected = p.id,
@@ -220,6 +237,82 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             }
     }
 
+    private fun exportCacheFiles(): List<File> =
+        getApplication<Application>()
+            .cacheDir
+            .listFiles()
+            ?.filter {
+                it.isFile &&
+                    !java.nio.file.Files.isSymbolicLink(it.toPath()) &&
+                    it.name.matches(Regex("sphere-export-[a-zA-Z0-9-]+\\.(exr|hdr)"))
+            }
+            .orEmpty()
+
+    fun clearExportCache() {
+        if (mutable.value.operation != null) return
+        mutable.update { it.copy(operation = "Clearing temporary exports", operationProgress = 0f) }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val files = exportCacheFiles()
+                    files.forEachIndexed { i, file ->
+                        check(!file.exists() || file.delete()) {
+                            "Could not remove a temporary export."
+                        }
+                        mutable.update { it.copy(operationProgress = (i + 1f) / files.size) }
+                    }
+                }
+            } catch (e: Exception) {
+                error(e.message ?: "Could not clear temporary exports.")
+            } finally {
+                mutable.update { it.copy(operation = null) }
+                refresh()
+            }
+        }
+    }
+
+    fun changeMaster(id: String, format: MasterFormat) {
+        if (mutable.value.operation != null) return
+        mutable.update {
+            it.copy(
+                operation = "Converting and verifying the HDR master",
+                operationProgress = 0f,
+                operationCancellable = true,
+            )
+        }
+        exportJob =
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        val context = currentCoroutineContext()
+                        store.replaceMaster(
+                            id,
+                            format,
+                            { source, destination ->
+                                EnvironmentIO.convert(
+                                    source,
+                                    destination,
+                                    { value ->
+                                        mutable.update { it.copy(operationProgress = value) }
+                                    },
+                                    { context.ensureActive() },
+                                    store.groundNote(store.read(id)),
+                                )
+                            },
+                            { context.ensureActive() },
+                        )
+                    }
+                } catch (_: CancellationException) {
+                    // The original stays until the verified replacement and manifest are committed.
+                } catch (e: Exception) {
+                    error(e.message ?: "Could not convert this master.")
+                } finally {
+                    mutable.update { it.copy(operation = null, operationCancellable = false) }
+                    refresh()
+                }
+            }
+    }
+
     fun export(id: String, name: String, uri: Uri) {
         if (mutable.value.operation != null) return
         mutable.update {
@@ -237,9 +330,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         val context = currentCoroutineContext()
                         store.withFiles(id) {
                             val dir = store.dir(id)
+                            val project = store.read(id)
+                            val master = store.masterFile(project)
                             if (name.endsWith(".zip")) store.requireSources(id)
                             val source =
-                                if (name.endsWith(".exr")) {
+                                if (
+                                    (name.endsWith(".exr") || name.endsWith(".hdr")) &&
+                                        name != master.name
+                                ) {
                                     val cache = getApplication<Application>().cacheDir
                                     // Recover abandoned exports from a previous process, without
                                     // touching a recent export or the persistent source capture.
@@ -252,23 +350,33 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                         }
                                         ?.forEach { it.delete() }
                                     check(cache.usableSpace > 110_000_000) {
-                                        "Free at least 110 MB to prepare the OpenEXR export."
+                                        "Free at least 110 MB to prepare the HDR export."
                                     }
-                                    File.createTempFile("sphere-export-", ".exr", cache).also { file
-                                        ->
-                                        temporary = file
-                                        ExrExport.write(
-                                            File(dir, "environment.hdr"),
-                                            file,
-                                            { value ->
-                                                mutable.update {
-                                                    it.copy(operationProgress = value * .8f)
-                                                }
-                                            },
-                                            { context.ensureActive() },
+                                    File.createTempFile(
+                                            "sphere-export-",
+                                            ".${name.substringAfterLast('.')}",
+                                            cache,
                                         )
-                                        mutable.update { it.copy(operation = "Saving OpenEXR") }
-                                    }
+                                        .also { file ->
+                                            temporary = file
+                                            EnvironmentIO.convert(
+                                                master,
+                                                file,
+                                                { value ->
+                                                    mutable.update {
+                                                        it.copy(operationProgress = value * .8f)
+                                                    }
+                                                },
+                                                { context.ensureActive() },
+                                                store.groundNote(project),
+                                            )
+                                            mutable.update {
+                                                it.copy(
+                                                    operation =
+                                                        "Saving ${name.substringAfterLast('.').uppercase()}"
+                                                )
+                                            }
+                                        }
                                 } else File(dir, name)
                             val output =
                                 getApplication<Application>()
@@ -277,11 +385,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                                     ?: kotlin.error("Could not open the selected file.")
                             output.buffered().use { out ->
                                 if (name.endsWith(".zip")) {
-                                    val files =
-                                        dir.walkTopDown()
-                                            .onEnter { it.name != "processed" }
-                                            .filter { it.isFile && !it.name.contains(".part") }
-                                            .toList()
+                                    val files = store.bundleFiles(project)
                                     val total = files.sumOf { it.length() }.coerceAtLeast(1)
                                     var copied = 0L
                                     ZipOutputStream(out).use { zip ->

@@ -69,14 +69,12 @@ class PipelineTest {
         assertTrue(result.state in listOf("ready", "review"))
         assertEquals(1.0, result.progress, 1e-6)
         assertEquals(0L, store.storage(result).processing)
+        assertEquals(app.hdri.data.MasterFormat.EXR, result.masterFormat)
+        assertFalse(File(store.dir(p.id), "environment.hdr").exists())
         store.requireSources(p.id)
         val report = JSONObject(File(store.dir(p.id), "report.json").readText())
         assertTrue(report.getDouble("coverage") > .998)
-        val hdr =
-            Imgcodecs.imread(
-                File(store.dir(p.id), "environment.hdr").path,
-                Imgcodecs.IMREAD_UNCHANGED,
-            )
+        val hdr = app.hdri.processing.EnvironmentIO.read(store.masterFile(result))
         try {
             assertEquals(2048, hdr.cols())
             assertEquals(1024, hdr.rows())
@@ -157,7 +155,7 @@ class PipelineTest {
                     c.exposures.all { File(store.dir(p.id), it.file).length() > 0 }
                 }
             )
-            assertFalse(File(store.dir(p.id), "environment.hdr").exists())
+            assertFalse(store.masterFile(store.read(p.id)).exists())
             assertTrue(
                 File(store.dir(p.id), "processed/${p.captures.first().targetId}.f32").exists()
             )

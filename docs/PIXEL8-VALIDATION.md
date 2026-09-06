@@ -38,3 +38,11 @@ Status: the user can complete full captures on Pixel 8 using inertial orientatio
 - Test font scaling and TalkBack on setup, processing, quality review and export controls.
 
 The hardest pending quality work is reliable correspondence and structure preservation around weak or repetitive seams, occlusions, resumed-capture alignment and camera-specific radiometry. RAW reconstruction remains a possible later camera-path improvement. Keep representative source bundles and assess visible edges as well as numerical fitting errors; additional aiming pauses are not a solution to ordinary between-view parallax.
+
+## Wider lenses and compact storage
+
+- Choose Ultrawide in New photosphere. Check that its actual view is wider, the physical lens does not switch, and dots stay on the preview features while tilting. Capture a main-lens and ultrawide sphere from the same area and inspect straight lines and exposure matching. Unsupported stream combinations should display an error with the main-lens recovery option.
+- Compare Compact and Most overlap stop counts. Check focus/settling and auto-capture with both; no stricter steadiness threshold is introduced.
+- Try Fill below me on a textured floor: no straight-down dot, no feet in the final cap, and approximate ground is labelled. Check sky and normal coverage holes still require capture.
+- In Lighting spheres, compare Meter grey, Capture exposure, HDR 1×, ±1 EV and the environment background. Explore HDR should pinch smoothly, zoom buttons agree, and reset returns to 1×.
+- After a 4K build, inspect the master/preview breakdown. Convert formats, cancel a conversion, export both formats and remove sources. Viewing/export must survive cleanup and restart. Source removal must disable rebuild. Android Settings includes installed code in addition to capture data.

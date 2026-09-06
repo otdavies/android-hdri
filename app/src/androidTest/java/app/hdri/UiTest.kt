@@ -56,10 +56,13 @@ class UiTest {
             rule.onAllNodesWithText("New photosphere").fetchSemanticsNodes().isNotEmpty()
         }
         rule.onNodeWithText("New photosphere").performClick()
-        rule.onNodeWithText("Keep the lens\nin one place.").assertIsDisplayed()
+        rule.onNodeWithText("Capture the light\naround you.").assertIsDisplayed()
         screenshot("setup.png")
         rule.onNodeWithText("Detailed environment").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Quick capture").assertExists()
+        rule.onNodeWithText("Fill below me").performScrollTo().performClick().assertIsSelected()
+        rule.onNodeWithText("Most overlap").performScrollTo().performClick().assertIsSelected()
+        rule.onNodeWithText("OpenEXR · compressed").performScrollTo().assertIsSelected()
         rule.onNodeWithText("Start capture").performScrollTo().assertIsDisplayed()
         screenshot("quality.png")
     }
@@ -68,7 +71,8 @@ class UiTest {
     fun completedCaptureShowsLightingAndConfirmsSourceRemoval() {
         val store =
             app.hdri.data.SessionStore(InstrumentationRegistry.getInstrumentation().targetContext)
-        val initial = store.create(app.hdri.data.Quality.QUICK)
+        val initial =
+            store.create(app.hdri.data.Quality.QUICK, masterFormat = app.hdri.data.MasterFormat.HDR)
         val dir = store.dir(initial.id)
         val bitmap =
             android.graphics.Bitmap.createBitmap(512, 256, android.graphics.Bitmap.Config.ARGB_8888)

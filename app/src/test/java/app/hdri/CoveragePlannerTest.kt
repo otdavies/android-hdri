@@ -118,4 +118,33 @@ class CoveragePlannerTest {
             assertEquals(valid, footprint.contains(q.rotate(l.ray(x.toDouble(), y.toDouble()))))
         }
     }
+
+    @Test
+    fun ultrawideAndGroundFillReduceStopsWhileOverlapRemainsProven() {
+        val q = InertialOrientation.cameraInDevice(90)
+        val wide = lens(112.0, 96.0)
+        val main = lens(68.0, 54.0)
+        val normal = CoveragePlanner.targets(main, q)
+        val compact = CoveragePlanner.targets(wide, q)
+        val fill = CoveragePlanner.targets(wide, q, 6.75, -55.0)
+        val overlap = CoveragePlanner.targets(wide, q, 13.0, -55.0)
+        println(
+            "PACE main=${normal.size}, wide=${compact.size}, fill=${fill.size}, overlap=${overlap.size}"
+        )
+        assertTrue(compact.size < normal.size)
+        assertTrue(fill.size < compact.size)
+        assertTrue(overlap.size >= fill.size)
+        for ((plan, margin) in listOf(fill to 6.0, overlap to 12.25)) {
+            assertTrue(plan.all { it.pitch >= -55.0 })
+            val footprints = plan.map { PhotoFootprint(Q.look(it.yaw, it.pitch) * q, wide) }
+            for (y in 0 until 145) for (x in 0 until 360) {
+                val ray = Sphere.ray(x + .5, y + .5, 360, 180)
+                assertTrue(
+                    footprints.withIndex().any { (i, f) ->
+                        f.containsWithRoll(ray, margin, abs(plan[i].pitch) > 89)
+                    }
+                )
+            }
+        }
+    }
 }

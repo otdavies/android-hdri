@@ -20,8 +20,9 @@ object ExrWriter {
         row: (Int, FloatArray) -> Unit,
         progress: (Float) -> Unit,
         checkCancelled: () -> Unit,
+        note: String = "",
     ) {
-        require(width in 1..16384 && height in 1..16384)
+        require(width in 1..8192 && height in 1..8192 && width.toLong() * height <= 33_554_432)
         val channels =
             ByteArrayOutputStream()
                 .apply {
@@ -59,7 +60,8 @@ object ExrWriter {
                 attr(
                     "comments",
                     "string",
-                    "sphere: relative linear RGB, Rec.709 primaries / D65; no tone mapping or exposure adjustment."
+                    ("sphere: relative linear RGB, Rec.709 primaries / D65; no tone mapping or exposure adjustment. " +
+                            note.take(512))
                         .toByteArray(),
                 )
                 out.write(0)
@@ -113,6 +115,7 @@ object ExrWriter {
                     buffer.clear()
                     out.write(buffer.putLong(it).array())
                 }
+                out.fd.sync()
             }
         } finally {
             deflater.end()

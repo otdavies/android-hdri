@@ -41,6 +41,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.hdri.capture.*
+import app.hdri.core.CoveragePlanner
+import app.hdri.core.InertialOrientation
 import app.hdri.data.*
 import app.hdri.processing.ProcessingService
 import app.hdri.ui.*
@@ -77,6 +79,10 @@ private fun SphereApp(vm: AppViewModel) {
     val processing by ProcessingService.status.collectAsStateWithLifecycle()
     val activity = LocalActivity.current as ComponentActivity
     var quality by remember { mutableStateOf(Quality.DETAIL) }
+    var masterFormat by remember { mutableStateOf(MasterFormat.EXR) }
+    var groundMode by remember { mutableStateOf(GroundMode.CAPTURE) }
+    var cameraKey by remember { mutableStateOf("main") }
+    var density by remember { mutableStateOf(CoverageDensity.COMPACT) }
     var resume by remember { mutableStateOf(false) }
     var pendingExport by remember { mutableStateOf<Pair<String, String>?>(null) }
     val save =
@@ -90,15 +96,18 @@ private fun SphereApp(vm: AppViewModel) {
     fun launchCapture() {
         try {
             if (
-                ArCoreApk.getInstance().requestInstall(activity, true) ==
-                    ArCoreApk.InstallStatus.INSTALL_REQUESTED
+                (if (resume) app.projects.firstOrNull { it.id == app.selected }?.cameraKey
+                else cameraKey) == "main" &&
+                    ArCoreApk.getInstance().requestInstall(activity, true) ==
+                        ArCoreApk.InstallStatus.INSTALL_REQUESTED
             ) {
                 vm.error(
                     "Finish installing Google Play Services for AR, then tap Start capture again."
                 )
                 return
             }
-            if (resume) vm.navigate(Screen.CAPTURE) else vm.create(quality)
+            if (resume) vm.navigate(Screen.CAPTURE)
+            else vm.create(quality, false, masterFormat, groundMode, cameraKey, density)
         } catch (e: Exception) {
             vm.error(
                 "Camera services could not start: ${e.message}. Check that Google Play Services for AR is installed."
@@ -157,6 +166,7 @@ private fun SphereApp(vm: AppViewModel) {
                     { vm.navigate(Screen.SETUP) },
                     vm::open,
                     { vm.create(Quality.QUICK, true) },
+                    vm::clearExportCache,
                 )
             Screen.SETUP ->
                 Setup(
@@ -165,6 +175,14 @@ private fun SphereApp(vm: AppViewModel) {
                     { vm.navigate(Screen.HOME) },
                     { startCapture(false) },
                     processing.running,
+                    masterFormat,
+                    { masterFormat = it },
+                    groundMode,
+                    { groundMode = it },
+                    cameraKey,
+                    { cameraKey = it },
+                    density,
+                    { density = it },
                 )
             Screen.CAPTURE ->
                 if (project != null)
@@ -188,7 +206,18 @@ private fun SphereApp(vm: AppViewModel) {
                     )
             Screen.VIEWER ->
                 if (project != null)
-                    ViewerScreen(File(vm.store.dir(project.id), "environment.hdr"), project.name) {
+                    ViewerScreen(
+                        vm.store.masterFile(project),
+                        project.name,
+                        project.captures
+                            .mapNotNull { c ->
+                                c.exposures
+                                    .sortedBy { it.seconds }
+                                    .let { it.getOrNull(it.size / 2)?.seconds }
+                            }
+                            .sorted()
+                            .let { it.getOrNull(it.size / 2)?.toFloat() },
+                    ) {
                         vm.navigate(Screen.DETAIL)
                     }
         }
@@ -256,6 +285,7 @@ private fun Home(
     new: () -> Unit,
     open: (String) -> Unit,
     sample: () -> Unit,
+    clearCache: () -> Unit,
 ) {
     LazyColumn(
         Modifier.fillMaxSize().safeDrawingPadding(),
@@ -346,6 +376,17 @@ private fun Home(
                     fontSize = 13.sp,
                 )
             }
+        item {
+            Text(
+                "Capture sizes exclude the installed app. Android Settings also counts the app and its image-processing libraries.",
+                color = Muted,
+                fontSize = 12.sp,
+            )
+            if (app.exportCacheBytes > 0)
+                TextButton(clearCache, enabled = app.operation == null) {
+                    Text("Clear temporary exports · ${formatBytes(app.exportCacheBytes)}")
+                }
+        }
         items(app.projects, key = { it.id }) { p ->
             CaptureRow(p, app.storage[p.id]) { open(p.id) }
         }
@@ -404,7 +445,46 @@ private fun Setup(
     back: () -> Unit,
     start: () -> Unit,
     busy: Boolean,
+    masterFormat: MasterFormat,
+    selectFormat: (MasterFormat) -> Unit,
+    groundMode: GroundMode,
+    selectGround: (GroundMode) -> Unit,
+    cameraKey: String,
+    selectCamera: (String) -> Unit,
+    density: CoverageDensity,
+    selectDensity: (CoverageDensity) -> Unit,
 ) {
+    val context = LocalContext.current
+    val cameras by
+        produceState<List<app.hdri.capture.CameraChoice>?>(null) {
+            value =
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching { app.hdri.capture.CameraCatalog.discover(context) }
+                        .getOrDefault(emptyList())
+                }
+        }
+    val selectedLens =
+        cameras?.firstOrNull { it.key == cameraKey }
+            ?: cameras?.firstOrNull { cameraKey == "main" && it.label.startsWith("Main") }
+    val stopCount by
+        produceState<Int?>(null, selectedLens, density, groundMode) {
+            value = null
+            if (selectedLens != null)
+                value =
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        val job = kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+                        CoveragePlanner.targets(
+                                selectedLens.lens,
+                                InertialOrientation.cameraInDevice(selectedLens.sensorOrientation),
+                                density.margin,
+                                groundMode.minPitch,
+                            ) {
+                                if (job?.isActive == false)
+                                    throw kotlinx.coroutines.CancellationException()
+                            }
+                            .size
+                    }
+        }
     Column(
         Modifier.fillMaxSize()
             .safeDrawingPadding()
@@ -414,14 +494,14 @@ private fun Setup(
     ) {
         Header("New photosphere", back)
         Text(
-            "Keep the lens\nin one place.",
+            "Capture the light\naround you.",
             fontSize = 36.sp,
             lineHeight = 40.sp,
             fontWeight = FontWeight.Medium,
         )
         InfoCard(
-            "01  Pivot, don’t walk",
-            "Wipe the main lens first. Turn where you stand, aim at each dot, and pause until the photo is captured.",
+            "01  Turn where you stand",
+            "Wipe the selected lens first. Turn where you stand, aim at each dot, and pause until the photo is captured.",
         )
         InfoCard(
             "02  Align with each dot",
@@ -451,8 +531,59 @@ private fun Setup(
                 }
             }
         }
+        Text("Camera lens", fontWeight = FontWeight.Medium)
+        FilterChip(cameraKey == "main", { selectCamera("main") }, label = { Text("Main camera") })
+        cameras?.forEach { camera ->
+            FilterChip(
+                cameraKey == camera.key,
+                { selectCamera(camera.key) },
+                label = { Text(camera.label) },
+            )
+        }
+        if (cameras == null) LinearProgressIndicator(Modifier.fillMaxWidth())
         Text(
-            "Leave at least 1 GB free for capture and processing. Temporary processing files are cleared when finished. You can remove source photos later to keep only the HDRI. HDR exports contain relative lighting values. Camera preview needs Google Play Services for AR installed. Gyro guidance and stitching work offline.",
+            "Wider lenses need fewer stops. Only lenses with manual HDR controls and geometric correction are offered. A lens stays fixed for the whole capture.",
+            color = Muted,
+            fontSize = 13.sp,
+        )
+        Text("Capture pace", fontWeight = FontWeight.Medium)
+        CoverageDensity.entries.forEach { option ->
+            FilterChip(density == option, { selectDensity(option) }, label = { Text(option.label) })
+        }
+        Text(
+            stopCount?.let {
+                "About $it stops · ${it * quality.bracketCount} photos. More overlap gives the stitcher more shared detail."
+            }
+                ?: if (selectedLens != null) "Calculating stops…"
+                else "The stop count is calculated when the camera opens.",
+            color = Muted,
+            fontSize = 13.sp,
+        )
+        Text("Stored HDR format", fontWeight = FontWeight.Medium)
+        MasterFormat.entries.forEach { format ->
+            FilterChip(
+                masterFormat == format,
+                { selectFormat(format) },
+                label = { Text(format.label) },
+            )
+        }
+        Text(
+            "One HDR master and a small JPEG preview are kept. The other HDR format is converted when you export it.",
+            color = Muted,
+            fontSize = 13.sp,
+        )
+        Text("Ground", fontWeight = FontWeight.Medium)
+        GroundMode.entries.forEach { mode ->
+            FilterChip(groundMode == mode, { selectGround(mode) }, label = { Text(mode.label) })
+        }
+        if (groundMode == GroundMode.FILL)
+            Text(
+                "Skip the straight-down photo. The bottom 35° is filled from nearby ground colour and texture; it is an approximation.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+        Text(
+            "Leave at least 1 GB free for capture and processing. Temporary processing files are cleared when finished. You can remove source photos later to keep only the HDRI. HDR exports contain relative lighting values. The default main-camera preview uses Google Play Services for AR. Other listed lenses use Camera2 directly. Gyro guidance and stitching work offline.",
             color = Muted,
             fontSize = 13.sp,
             lineHeight = 20.sp,
@@ -685,7 +816,7 @@ private fun Details(
                         FileProvider.getUriForFile(
                             context,
                             "${context.packageName}.files",
-                            File(dir, "environment.hdr"),
+                            vm.store.masterFile(p),
                         )
                     val intent =
                         Intent(Intent.ACTION_SEND)
@@ -699,10 +830,10 @@ private fun Details(
             ) {
                 Icon(Icons.Outlined.Share, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Share HDR")
+                Text("Share ${p.masterFormat.name}")
             }
             Text(
-                "EXR and HDR preserve the saved relative lighting values. The JPEG is a tone-mapped photosphere. EXR is created only when exporting; an extra copy is not kept in this capture.",
+                "One ${p.masterFormat.name} master is stored. Other export formats are converted on demand. The JPEG is a tone-mapped preview.",
                 color = Muted,
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
@@ -772,12 +903,19 @@ private fun Details(
             if (p.targets.isNotEmpty() && p.captures.size >= p.targets.size)
                 OutlinedButton(process, Modifier.fillMaxWidth()) { Text("Build HDR sphere") }
         }
+        if (p.groundMode == GroundMode.FILL)
+            Text(
+                "Ground fill: the bottom 35° is approximate colour and texture, not captured scene detail.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
         StorageCard(
             p,
             storage,
             running,
             { vm.clearStorage(p.id, false) },
             { removingSources = true },
+            { vm.changeMaster(p.id, it) },
         )
         if (p.captures.isNotEmpty() && !p.sourcesRemoved && !running)
             TextButton({ export("capture.zip") }, Modifier.fillMaxWidth()) {
@@ -879,6 +1017,7 @@ private fun StorageCard(
     running: Boolean,
     clearCache: () -> Unit,
     clearSources: () -> Unit,
+    changeMaster: (MasterFormat) -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(20.dp)).padding(20.dp),
@@ -892,7 +1031,10 @@ private fun StorageCard(
             listOf(
                     "Source photos" to usage.sources,
                     "Processing files" to usage.processing,
-                    "Exports and metadata" to usage.other,
+                    "HDR master" to usage.environment,
+                    "JPEG preview" to usage.preview,
+                    "Metadata and other files" to
+                        (usage.other - usage.environment - usage.preview).coerceAtLeast(0),
                     "Total on device" to usage.total,
                 )
                 .forEach { (label, bytes) ->
@@ -928,6 +1070,18 @@ private fun StorageCard(
                         else "Remove source photos"
                     )
                 }
+            if (!running && p.state in listOf("ready", "review")) {
+                Text(
+                    "Stored as ${p.masterFormat.label}. EXR uses lossless ZIP compression; HDR uses RGBE precision. Only one master is needed.",
+                    color = Muted,
+                    fontSize = 13.sp,
+                )
+                val other =
+                    if (p.masterFormat == MasterFormat.HDR) MasterFormat.EXR else MasterFormat.HDR
+                OutlinedButton({ changeMaster(other) }, Modifier.fillMaxWidth()) {
+                    Text("Store as ${other.name}")
+                }
+            }
         }
     }
 }

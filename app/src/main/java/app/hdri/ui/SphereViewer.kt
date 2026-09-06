@@ -4,6 +4,7 @@ import android.content.Context
 import android.opengl.GLES30.*
 import android.opengl.GLSurfaceView
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import app.hdri.core.Q
 import app.hdri.core.V3
 import java.nio.ByteBuffer
@@ -28,7 +29,25 @@ internal class SphereViewer(
     @Volatile private var pitch = 0.0
     @Volatile var exposure = 0f
     @Volatile var probes = true
-    @Volatile var linear = false
+    @Volatile var linear = true
+    @Volatile var exposureScale: Float? = null
+    @Volatile var background = false
+    @Volatile
+    var zoomFactor = 1f
+        private set
+
+    var zoomChanged: (Float) -> Unit = {}
+    private var dragging = false
+    private val scaleDetector =
+        ScaleGestureDetector(
+            context,
+            object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScale(detector: ScaleGestureDetector): Boolean {
+                    if (!probes) setViewZoom(zoomFactor * detector.scaleFactor)
+                    return true
+                }
+            },
+        )
     private var announced = false
     private var lastX = 0f
     private var lastY = 0f
@@ -43,7 +62,8 @@ internal class SphereViewer(
         preserveEGLContextOnPause = true
         setRenderer(this)
         renderMode = RENDERMODE_WHEN_DIRTY
-        contentDescription = "HDR lighting viewer. Drag to rotate the environment."
+        contentDescription =
+            "HDR lighting viewer. Drag to look around. Pinch to zoom in Explore HDR."
     }
 
     fun look(dx: Double, dy: Double) {
@@ -55,6 +75,14 @@ internal class SphereViewer(
     fun reset() {
         yaw = 0.0
         pitch = 0.0
+        setViewZoom(1f)
+        requestRender()
+    }
+
+    fun setViewZoom(value: Float) {
+        if (!value.isFinite()) return
+        zoomFactor = value.coerceIn(.5f, 4f)
+        zoomChanged(zoomFactor)
         requestRender()
     }
 
@@ -163,10 +191,12 @@ internal class SphereViewer(
         glUniform1f(glGetUniformLocation(shader, "aspect"), aspect)
         glUniform1f(
             glGetUniformLocation(shader, "gain"),
-            environment.scale * Math.pow(2.0, exposure.toDouble()).toFloat(),
+            (exposureScale ?: environment.scale) * Math.pow(2.0, exposure.toDouble()).toFloat(),
         )
         glUniform1i(glGetUniformLocation(shader, "probes"), if (probes) 1 else 0)
         glUniform1i(glGetUniformLocation(shader, "linearDisplay"), if (linear) 1 else 0)
+        glUniform1i(glGetUniformLocation(shader, "showBackground"), if (background) 1 else 0)
+        glUniform1f(glGetUniformLocation(shader, "viewScale"), .7f / zoomFactor)
         val p = glGetAttribLocation(shader, "p")
         vertices.position(0)
         glEnableVertexAttribArray(p)
@@ -181,22 +211,38 @@ internal class SphereViewer(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        scaleDetector.onTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = event.x
                 lastY = event.y
+                dragging = true
                 parent?.requestDisallowInterceptTouchEvent(true)
             }
             MotionEvent.ACTION_MOVE -> {
-                look(-(event.x - lastX) * .14, (event.y - lastY) * .14)
+                if (dragging && event.pointerCount == 1 && !scaleDetector.isInProgress)
+                    look(
+                        -(event.x - lastX) * .14 / zoomFactor,
+                        (event.y - lastY) * .14 / zoomFactor,
+                    )
                 lastX = event.x
                 lastY = event.y
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> dragging = false
+            MotionEvent.ACTION_POINTER_UP -> {
+                val remaining = if (event.actionIndex == 0) 1 else 0
+                lastX = event.getX(remaining)
+                lastY = event.getY(remaining)
+                dragging = event.pointerCount == 2
             }
             MotionEvent.ACTION_UP -> {
                 performClick()
                 parent?.requestDisallowInterceptTouchEvent(false)
             }
-            MotionEvent.ACTION_CANCEL -> parent?.requestDisallowInterceptTouchEvent(false)
+            MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                parent?.requestDisallowInterceptTouchEvent(false)
+            }
         }
         return true
     }
@@ -216,7 +262,7 @@ in vec2 pos;out vec4 color;
 uniform sampler2D env;uniform sampler2D diffuseMap;
 uniform mat3 rot;uniform float aspect;uniform float gain;
 uniform vec2 envSize;uniform vec2 diffuseSize;
-uniform bool probes;uniform bool linearDisplay;
+uniform bool probes;uniform bool linearDisplay;uniform bool showBackground;uniform float viewScale;
 vec3 light(sampler2D t,vec2 dims,vec3 d) {
     d=normalize(d);
     vec2 uv=vec2(atan(d.x,-d.z)/6.283185307+.5,.5-asin(clamp(d.y,-1.,1.))/3.141592654);
@@ -230,12 +276,13 @@ vec3 display(vec3 radiance) {
     return mix(12.92*c,1.055*pow(c,vec3(1./2.4))-.055,step(vec3(.0031308),c));
 }
 void main() {
-    if(!probes) {color=vec4(display(light(env,envSize,rot*vec3(pos.x*aspect*.7,pos.y*.7,-1.))),1.);return;}
+    if(!probes) {color=vec4(display(light(env,envSize,rot*vec3(pos.x*aspect*viewScale,pos.y*viewScale,-1.))),1.);return;}
     vec2 p=vec2(pos.x*aspect,pos.y);
     float radius=min(aspect*.41,.78);bool chrome=pos.x<0.;
     vec2 local=(p-vec2((chrome?-.5:.5)*aspect,0.))/radius;
     float rr=dot(local,local);float aa=max(fwidth(rr),.001);
     vec3 background=vec3(.082,.090,.098);
+    if(showBackground) background=display(light(env,envSize,rot*vec3(pos.x*aspect*.7,pos.y*.7,-1.)));
     if(rr>1.+aa) {color=vec4(background,1.);return;}
     vec3 n=normalize(vec3(local,sqrt(max(0.,1.-rr))));
     vec3 radiance=chrome?light(env,envSize,rot*reflect(vec3(0.,0.,-1.),n)):.18*light(diffuseMap,diffuseSize,rot*n);

@@ -3,13 +3,18 @@ package app.hdri.capture
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.graphics.ImageFormat
+import android.graphics.SurfaceTexture
 import android.hardware.*
 import android.hardware.camera2.*
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
 import android.hardware.camera2.params.TonemapCurve
 import android.media.ImageReader
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
 import android.os.*
+import android.util.Size
+import android.view.Surface
 import app.hdri.core.*
 import app.hdri.data.*
 import com.google.ar.core.Config
@@ -78,6 +83,13 @@ class CaptureEngine(
     private val backdrop = CameraBackdrop()
     private val sensors = activity.getSystemService(SensorManager::class.java)
     private val manager = activity.getSystemService(CameraManager::class.java)
+    private val nativeCamera = initial.cameraKey != "main"
+    private var choice: CameraChoice? = null
+    private var nativeTexture: SurfaceTexture? = null
+    private var nativeSurface: Surface? = null
+    private var previewSize: Size? = null
+    @Volatile private var nativeFrame = false
+    private var physicalKeys = emptyList<CaptureRequest.Key<*>>()
     private var ar: Session? = null
     private var camera: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -87,7 +99,7 @@ class CaptureEngine(
     @Volatile private var closed = false
     @Volatile private var capturing = false
     @Volatile private var opened = false
-    @Volatile private var latestResult: TotalCaptureResult? = null
+    @Volatile private var latestResult: CaptureResult? = null
     @Volatile private var latestQ = Q()
     @Volatile private var lens: Lens? = null
     @Volatile private var offset: Q? = null
@@ -118,21 +130,23 @@ class CaptureEngine(
         val results: MutableMap<Long, Exposure> = mutableMapOf(),
         val files: MutableMap<Long, String> = mutableMapOf(),
         val windows: MutableList<LongRange> = mutableListOf(),
+        val lenses: MutableMap<Long, Lens> = mutableMapOf(),
     )
 
     init {
         try {
-            ar =
-                Session(activity, EnumSet.of(Session.Feature.SHARED_CAMERA)).also { session ->
-                    val config =
-                        Config(session).apply {
-                            focusMode = Config.FocusMode.AUTO
-                            planeFindingMode = Config.PlaneFindingMode.DISABLED
-                            lightEstimationMode = Config.LightEstimationMode.DISABLED
-                            updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-                        }
-                    session.configure(config)
-                }
+            if (!nativeCamera)
+                ar =
+                    Session(activity, EnumSet.of(Session.Feature.SHARED_CAMERA)).also { session ->
+                        val config =
+                            Config(session).apply {
+                                focusMode = Config.FocusMode.AUTO
+                                planeFindingMode = Config.PlaneFindingMode.DISABLED
+                                lightEstimationMode = Config.LightEstimationMode.DISABLED
+                                updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
+                            }
+                        session.configure(config)
+                    }
             val motionHandler = Handler(motionThread.looper)
             for (type in listOf(Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_GYROSCOPE)) {
                 val sensor =
@@ -150,9 +164,14 @@ class CaptureEngine(
     }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        if (closed || ar == null) return
+        if (closed || (!nativeCamera && ar == null)) return
         try {
             backdrop.create()
+            if (nativeCamera)
+                nativeTexture =
+                    SurfaceTexture(backdrop.texture).also {
+                        it.setOnFrameAvailableListener({ nativeFrame = true }, handler)
+                    }
             synchronized(arLock) { ar?.setCameraTextureName(backdrop.texture) }
             if (!opened) {
                 opened = true
@@ -173,7 +192,12 @@ class CaptureEngine(
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (closed) return
         synchronized(arLock) {
-            val session = ar ?: return
+            val session = ar
+            if (!nativeCamera && session == null) return
+            if (nativeCamera && nativeFrame) {
+                nativeFrame = false
+                nativeTexture?.updateTexImage()
+            }
             if (!active) {
                 if (backdrop.texture != 0) backdrop.draw(null)
                 return
@@ -181,12 +205,38 @@ class CaptureEngine(
             try {
                 @Suppress("DEPRECATION")
                 val rotation = activity.windowManager.defaultDisplay.rotation
-                session.setDisplayGeometry(rotation, width, height)
-                val frame = session.update()
-                backdrop.draw(frame)
-                if (frame.timestamp == 0L || frame.timestamp == lastFrameTimestamp) return
-                lastFrameTimestamp = frame.timestamp
-                val c = frame.camera
+                val cameraInDisplay =
+                    InertialOrientation.displayInDevice(rotation * 90).inverse() *
+                        InertialOrientation.cameraInDevice(sensorOrientation)
+                val frame =
+                    if (!nativeCamera) {
+                        session!!.setDisplayGeometry(rotation, width, height)
+                        session.update().also { backdrop.draw(it) }
+                    } else null
+                if (nativeCamera) {
+                    val visibleLens = lens ?: return
+                    val coordinates = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
+                    for (i in 0 until 4) {
+                        val uv =
+                            CameraGeometry.displayToImage(
+                                coordinates[i * 2].toDouble(),
+                                coordinates[i * 2 + 1].toDouble(),
+                                cameraInDisplay,
+                                visibleLens,
+                                width,
+                                height,
+                            )
+                        coordinates[i * 2] = uv.first.toFloat()
+                        coordinates[i * 2 + 1] = uv.second.toFloat()
+                    }
+                    val transform = FloatArray(16)
+                    nativeTexture!!.getTransformMatrix(transform)
+                    backdrop.drawNative(coordinates, transform)
+                }
+                val timestamp = frame?.timestamp ?: nativeTexture?.timestamp ?: 0L
+                if (timestamp == 0L || timestamp == lastFrameTimestamp) return
+                lastFrameTimestamp = timestamp
+                val c = frame?.camera
                 // The AR camera's pose and tracking state are intentionally never consulted.
                 // Its image stream and intrinsics remain usable when visual tracking is paused.
                 val motion = orientation.latest(SystemClock.elapsedRealtimeNanos())
@@ -207,21 +257,23 @@ class CaptureEngine(
                 latestQ =
                     (motion.device * InertialOrientation.cameraInDevice(sensorOrientation))
                         .normalized()
-                val i = c.imageIntrinsics
-                val dims = i.imageDimensions
-                val f = i.focalLength
-                val cp = i.principalPoint
-                reader?.let {
-                    lens =
-                        Lens(
-                                dims[0],
-                                dims[1],
-                                f[0].toDouble(),
-                                f[1].toDouble(),
-                                cp[0].toDouble(),
-                                cp[1].toDouble(),
-                            )
-                            .scaled(it.width, it.height)
+                if (c != null) {
+                    val i = c.imageIntrinsics
+                    val dims = i.imageDimensions
+                    val f = i.focalLength
+                    val cp = i.principalPoint
+                    reader?.let {
+                        lens =
+                            Lens(
+                                    dims[0],
+                                    dims[1],
+                                    f[0].toDouble(),
+                                    f[1].toDouble(),
+                                    cp[0].toDouble(),
+                                    cp[1].toDouble(),
+                                )
+                                .scaled(it.width, it.height)
+                    }
                 }
                 if (offset == null && project.captures.isEmpty()) {
                     offset = InertialOrientation.zeroHeading(motion.device)
@@ -293,13 +345,31 @@ class CaptureEngine(
                         motion.device *
                         InertialOrientation.displayInDevice(rotation * 90)
                 val proj = FloatArray(16)
-                c.getProjectionMatrix(proj, 0, .1f, 100f)
+                c?.getProjectionMatrix(proj, 0, .1f, 100f)
                 val markers =
                     project.targets.mapNotNull { t ->
                         val v = dq.inverse().rotate(t.ray)
                         if (v.z >= -.05) return@mapNotNull null
-                        val nx = (proj[0] * v.x + proj[8] * v.z) / -v.z
-                        val ny = (proj[5] * v.y + proj[9] * v.z) / -v.z
+                        val screen =
+                            if (nativeCamera) {
+                                val l = lens ?: return@mapNotNull null
+                                val local = q.inverse().rotate(t.ray)
+                                val pixel = l.project(local) ?: return@mapNotNull null
+                                CameraGeometry.imageToDisplay(
+                                    pixel.first,
+                                    pixel.second,
+                                    cameraInDisplay,
+                                    l,
+                                    width,
+                                    height,
+                                )
+                            } else null
+                        val nx =
+                            screen?.let { it.first * 2 - 1 }
+                                ?: ((proj[0] * v.x + proj[8] * v.z) / -v.z)
+                        val ny =
+                            screen?.let { 1 - it.second * 2 }
+                                ?: ((proj[5] * v.y + proj[9] * v.z) / -v.z)
                         if (abs(nx) > 1.15 || abs(ny) > 1.15) null
                         else
                             Marker(
@@ -358,7 +428,12 @@ class CaptureEngine(
         try {
             val original = project
             val planned =
-                CoveragePlanner.targets(lens, cameraInDisplay) { progress ->
+                CoveragePlanner.targets(
+                    lens,
+                    cameraInDisplay,
+                    original.density.margin,
+                    original.groundMode.minPitch,
+                ) { progress ->
                     check(!closed) { "Capture was closed." }
                     state.value =
                         state.value.copy(
@@ -367,7 +442,15 @@ class CaptureEngine(
                 }
             if (closed) return
             val saved = original.captures.map { PhotoFootprint(it.rotation, it.lens) }
-            val remaining = CoveragePlanner.retainNeeded(planned, lens, cameraInDisplay, saved)
+            val remaining =
+                CoveragePlanner.retainNeeded(
+                    planned,
+                    lens,
+                    cameraInDisplay,
+                    saved,
+                    original.density.margin,
+                    original.groundMode.minPitch,
+                )
             if (closed) return
             project = store.update(original.id) { CapturePlans.replaceRemaining(it, remaining) }
             val targets = project.targets
@@ -431,9 +514,17 @@ class CaptureEngine(
     private fun openCamera() {
         if (closed) return
         try {
-            val session = ar ?: return
-            val id = session.cameraConfig.cameraId
-            val c = manager.getCameraCharacteristics(id)
+            val session = ar
+            if (nativeCamera)
+                choice =
+                    CameraCatalog.discover(activity).firstOrNull { it.key == project.cameraKey }
+                        ?: error(
+                            "The selected lens is unavailable. Start a new capture with a supported lens."
+                        )
+            val id = choice?.cameraId ?: session!!.cameraConfig.cameraId
+            val c = manager.getCameraCharacteristics(choice?.physicalId ?: id)
+            physicalKeys =
+                manager.getCameraCharacteristics(id).availablePhysicalCameraRequestKeys.orEmpty()
             characteristics = c
             check(
                 c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
@@ -445,7 +536,8 @@ class CaptureEngine(
             check(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in caps) {
                 "This camera cannot capture manual exposure brackets."
             }
-            val rawSize = session.cameraConfig.imageSize
+            val rawSize =
+                choice?.let { CameraCatalog.photoSize(c) } ?: session!!.cameraConfig.imageSize
             val sizes =
                 c.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP)!!.getOutputSizes(
                     ImageFormat.JPEG
@@ -492,7 +584,22 @@ class CaptureEngine(
                         handler,
                     )
                 }
-            session.sharedCamera.setAppSurfaces(id, listOf(reader!!.surface))
+            if (nativeCamera) {
+                lens = CameraCatalog.calibration(c, null, size)
+                val previews =
+                    c[CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP]!!.getOutputSizes(
+                        SurfaceTexture::class.java
+                    )
+                previewSize =
+                    previews
+                        .filter {
+                            abs(it.width.toDouble() / it.height - ratio) < .015 && it.width <= 1920
+                        }
+                        .minByOrNull { abs(it.width * it.height - 1_000_000) }
+                        ?: error("No calibrated preview size matches this lens.")
+                nativeTexture!!.setDefaultBufferSize(previewSize!!.width, previewSize!!.height)
+                nativeSurface = Surface(nativeTexture)
+            } else session!!.sharedCamera.setAppSurfaces(id, listOf(reader!!.surface))
             val callback =
                 object : CameraDevice.StateCallback() {
                     override fun onOpened(device: CameraDevice) {
@@ -520,7 +627,8 @@ class CaptureEngine(
                 }
             manager.openCamera(
                 id,
-                session.sharedCamera.createARDeviceStateCallback(callback, handler),
+                if (nativeCamera) callback
+                else session!!.sharedCamera.createARDeviceStateCallback(callback, handler),
                 handler,
             )
         } catch (e: Exception) {
@@ -531,9 +639,9 @@ class CaptureEngine(
     @Suppress("DEPRECATION")
     private fun configure() {
         try {
-            val session = ar ?: return
+            val session = ar
             val device = camera ?: return
-            val surfaces = session.sharedCamera.arCoreSurfaces.toMutableList()
+            val surfaces = previewSurfaces().toMutableList()
             surfaces.add(reader!!.surface)
             val callback =
                 object : CameraCaptureSession.StateCallback() {
@@ -552,18 +660,101 @@ class CaptureEngine(
 
                     override fun onConfigureFailed(s: CameraCaptureSession) {
                         fail(
-                            "The phone rejected the shared AR/still-camera streams. Your saved captures are safe."
+                            "This lens does not support the required preview and HDR photo streams. Start a new capture with the main lens. Saved photos are safe."
                         )
                     }
                 }
-            device.createCaptureSession(
-                surfaces,
-                session.sharedCamera.createARSessionStateCallback(callback, handler),
-                handler,
-            )
+            if (nativeCamera) {
+                val outputs =
+                    surfaces.map { surface ->
+                        OutputConfiguration(surface).apply {
+                            choice?.physicalId?.let { setPhysicalCameraId(it) }
+                        }
+                    }
+                val configuration =
+                    SessionConfiguration(
+                        SessionConfiguration.SESSION_REGULAR,
+                        outputs,
+                        java.util.concurrent.Executor { handler.post(it) },
+                        callback,
+                    )
+                check(
+                    runCatching { device.isSessionConfigurationSupported(configuration) }
+                        .getOrDefault(true)
+                ) {
+                    "This lens cannot combine calibrated preview and HDR photographs. Choose the main lens."
+                }
+                device.createCaptureSession(configuration)
+            } else
+                device.createCaptureSession(
+                    surfaces,
+                    session!!.sharedCamera.createARSessionStateCallback(callback, handler),
+                    handler,
+                )
         } catch (e: Exception) {
             fail("Camera configuration failed: ${e.message}")
         }
+    }
+
+    private fun previewSurfaces(): List<Surface> =
+        if (nativeCamera) listOfNotNull(nativeSurface)
+        else ar?.sharedCamera?.arCoreSurfaces.orEmpty()
+
+    private fun physicalResult(result: TotalCaptureResult): CaptureResult? {
+        val id = choice?.physicalId ?: return result
+        return result.physicalCameraResults[id].also {
+            if (it == null)
+                fail(
+                    "The selected lens did not return its calibration and exposure metadata. Choose the main lens for a new capture."
+                )
+        }
+    }
+
+    private fun newRequest(template: Int): CaptureRequest.Builder =
+        choice?.physicalId?.let { camera!!.createCaptureRequest(template, setOf(it)) }
+            ?: camera!!.createCaptureRequest(template)
+
+    private fun finishRequest(builder: CaptureRequest.Builder): CaptureRequest {
+        if (nativeCamera) {
+            val c = characteristics!!
+            if (
+                c[CameraCharacteristics.LENS_INFO_AVAILABLE_OPTICAL_STABILIZATION]?.contains(0) ==
+                    true
+            )
+                builder.set(
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
+                    CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
+                )
+            builder.set(
+                CaptureRequest.DISTORTION_CORRECTION_MODE,
+                CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY,
+            )
+            val active = c[CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE]!!
+            builder.set(
+                CaptureRequest.SCALER_CROP_REGION,
+                android.graphics.Rect(0, 0, active.width(), active.height()),
+            )
+            if (Build.VERSION.SDK_INT >= 31)
+                builder.set(
+                    CaptureRequest.SCALER_ROTATE_AND_CROP,
+                    CaptureRequest.SCALER_ROTATE_AND_CROP_NONE,
+                )
+            if (
+                builder.get(CaptureRequest.CONTROL_AF_MODE) ==
+                    CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE &&
+                    c[CameraCharacteristics.CONTROL_AF_AVAILABLE_MODES]?.contains(
+                        CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE
+                    ) != true
+            )
+                builder.set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
+            choice?.physicalId?.let { id ->
+                for (key in physicalKeys) {
+                    @Suppress("UNCHECKED_CAST") val k = key as CaptureRequest.Key<Any>
+                    builder.get(k)?.let { builder.setPhysicalCameraKey(k, it, id) }
+                }
+            }
+        }
+        return builder.build()
     }
 
     private val previewCallback =
@@ -573,13 +764,33 @@ class CaptureEngine(
                 r: CaptureRequest,
                 result: TotalCaptureResult,
             ) {
+                val frameResult = physicalResult(result) ?: return
+                if (nativeCamera) {
+                    val ir = reader ?: return
+                    runCatching {
+                            check(
+                                frameResult[CaptureResult.DISTORTION_CORRECTION_MODE] ==
+                                    CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY
+                            ) {
+                                "This lens did not apply the requested geometric correction."
+                            }
+                            CameraCatalog.calibration(
+                                characteristics!!,
+                                frameResult,
+                                Size(ir.width, ir.height),
+                            )
+                        }
+                        .onSuccess { lens = it }
+                        .onFailure { fail("Lens calibration failed: ${it.message}") }
+                }
                 val now = SystemClock.elapsedRealtimeNanos()
-                val focus = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
-                val af = result.get(CaptureResult.CONTROL_AF_STATE)
+                val focus = frameResult.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                val af = frameResult.get(CaptureResult.CONTROL_AF_STATE)
                 val scanning =
                     af == CaptureResult.CONTROL_AF_STATE_PASSIVE_SCAN ||
                         af == CaptureResult.CONTROL_AF_STATE_ACTIVE_SCAN
-                val moving = result.get(CaptureResult.LENS_STATE) == CaptureResult.LENS_STATE_MOVING
+                val moving =
+                    frameResult.get(CaptureResult.LENS_STATE) == CaptureResult.LENS_STATE_MOVING
                 if (
                     moving ||
                         scanning ||
@@ -593,14 +804,14 @@ class CaptureEngine(
                 } else if (focusStableSince == 0L) focusStableSince = now
                 previousFocus = focus
                 resultReceivedAt = now
-                latestResult = result
+                latestResult = frameResult
             }
         }
 
     private fun startPreview() {
-        val session = ar ?: return
-        val request = camera?.createCaptureRequest(CameraDevice.TEMPLATE_RECORD) ?: return
-        session.sharedCamera.arCoreSurfaces.forEach { request.addTarget(it) }
+        if (camera == null) return
+        val request = newRequest(CameraDevice.TEMPLATE_RECORD)
+        previewSurfaces().forEach { request.addTarget(it) }
         request.set(
             CaptureRequest.CONTROL_AF_MODE,
             CaptureRequest.CONTROL_AF_MODE_CONTINUOUS_PICTURE,
@@ -609,7 +820,7 @@ class CaptureEngine(
             CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
             CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_OFF,
         )
-        captureSession?.setRepeatingRequest(request.build(), previewCallback, handler)
+        captureSession?.setRepeatingRequest(finishRequest(request), previewCallback, handler)
     }
 
     private fun resumeAr() {
@@ -701,8 +912,7 @@ class CaptureEngine(
             captureSession?.stopRepeating()
             val requests =
                 times.mapIndexed { index, time ->
-                    camera!!
-                        .createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
+                    newRequest(CameraDevice.TEMPLATE_STILL_CAPTURE)
                         .apply {
                             addTarget(reader!!.surface)
                             setTag(index)
@@ -782,7 +992,7 @@ class CaptureEngine(
                             )
                                 set(CaptureRequest.EDGE_MODE, CaptureRequest.EDGE_MODE_FAST)
                         }
-                        .build()
+                        .let { finishRequest(it) }
                 }
             settleLens(focus) {
                 captureSession!!.captureBurst(
@@ -794,26 +1004,48 @@ class CaptureEngine(
                             result: TotalCaptureResult,
                         ) {
                             val p = pending ?: return
+                            val captured =
+                                physicalResult(result)
+                                    ?: return abort("Physical camera exposure metadata is missing.")
                             val timestamp =
-                                result.get(CaptureResult.SENSOR_TIMESTAMP)
+                                captured.get(CaptureResult.SENSOR_TIMESTAMP)
                                     ?: return abort(
                                         "The camera did not report a frame timestamp. Retry this direction."
                                     )
                             val time =
-                                result.get(CaptureResult.SENSOR_EXPOSURE_TIME)
+                                captured.get(CaptureResult.SENSOR_EXPOSURE_TIME)
                                     ?: return abort(
                                         "The camera did not report exposure time. Retry this direction."
                                     )
                             val gain =
-                                result.get(CaptureResult.SENSOR_SENSITIVITY)
+                                captured.get(CaptureResult.SENSOR_SENSITIVITY)
                                     ?: return abort(
                                         "The camera did not report ISO. Retry this direction."
                                     )
+                            if (nativeCamera) {
+                                try {
+                                    val calibrated =
+                                        CameraCatalog.calibration(
+                                            characteristics!!,
+                                            captured,
+                                            Size(p.lens.width, p.lens.height),
+                                        )
+                                    check(
+                                        abs(calibrated.fx / p.lens.fx - 1) < .02 &&
+                                            abs(calibrated.fy / p.lens.fy - 1) < .02
+                                    ) {
+                                        "Lens crop changed during the bracket. Retry this direction."
+                                    }
+                                    p.lenses[timestamp] = calibrated
+                                } catch (e: Exception) {
+                                    return abort(e.message ?: "Lens calibration changed.")
+                                }
+                            }
                             p.results[timestamp] = Exposure("", time, gain, timestamp)
                             p.windows +=
                                 timestamp..(timestamp +
                                         time +
-                                        (result.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
+                                        (captured.get(CaptureResult.SENSOR_ROLLING_SHUTTER_SKEW)
                                             ?: 0L))
                             finishIfReady()
                         }
@@ -865,10 +1097,9 @@ class CaptureEngine(
                     else "Confirming focus · hold steady",
             )
         val request =
-            camera!!
-                .createCaptureRequest(CameraDevice.TEMPLATE_RECORD)
+            newRequest(CameraDevice.TEMPLATE_RECORD)
                 .apply {
-                    ar!!.sharedCamera.arCoreSurfaces.forEach { addTarget(it) }
+                    previewSurfaces().forEach { addTarget(it) }
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
                     set(CaptureRequest.LENS_FOCUS_DISTANCE, focus)
                     set(
@@ -885,7 +1116,7 @@ class CaptureEngine(
                             CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
                         )
                 }
-                .build()
+                .let { finishRequest(it) }
         captureSession!!.setRepeatingRequest(
             request,
             object : CameraCaptureSession.CaptureCallback() {
@@ -895,9 +1126,11 @@ class CaptureEngine(
                     result: TotalCaptureResult,
                 ) {
                     if (closed || pending !== token || started) return
-                    val actual = result.get(CaptureResult.LENS_FOCUS_DISTANCE)
+                    val metadata =
+                        physicalResult(result) ?: return abort("Physical lens metadata is missing.")
+                    val actual = metadata.get(CaptureResult.LENS_FOCUS_DISTANCE)
                     val still =
-                        result.get(CaptureResult.LENS_STATE) != CaptureResult.LENS_STATE_MOVING &&
+                        metadata.get(CaptureResult.LENS_STATE) != CaptureResult.LENS_STATE_MOVING &&
                             (actual == null || abs(actual - focus) <= max(.08f, focus * .05f))
                     stableFrames = if (still) stableFrames + 1 else 0
                     if (
@@ -1016,7 +1249,7 @@ class CaptureEngine(
                     p.id,
                     measuredPose ?: p.q,
                     V3.ZERO,
-                    p.lens,
+                    p.lenses[middle.timestamp] ?: p.lens,
                     exposures,
                     findings,
                     "game_rotation_vector_handheld",
@@ -1105,6 +1338,10 @@ class CaptureEngine(
     }
 
     private fun finishClose() {
+        runCatching { nativeSurface?.release() }
+        runCatching { nativeTexture?.release() }
+        nativeSurface = null
+        nativeTexture = null
         runCatching { reader?.close() }
         reader = null
         synchronized(arLock) {

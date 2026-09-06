@@ -116,12 +116,16 @@ object Radiance {
 }
 
 /** Standard Radiance RGBE, row-wise RLE; only a single scanline is retained. */
-class HdrWriter(private val stream: OutputStream, private val width: Int, height: Int) :
-    AutoCloseable {
+class HdrWriter(
+    private val stream: OutputStream,
+    private val width: Int,
+    height: Int,
+    note: String = "",
+) : AutoCloseable {
     init {
         require(width in 8..32767 && height > 0)
         stream.write(
-            "#?RADIANCE\n# sphere - relative scene radiance, linear RGB / D65\nFORMAT=32-bit_rle_rgbe\n\n-Y $height +X $width\n"
+            "#?RADIANCE\n# sphere - relative scene radiance, linear RGB / D65\n# ${note.replace("\n", " ").replace("\r", " ").take(512)}\nFORMAT=32-bit_rle_rgbe\n\n-Y $height +X $width\n"
                 .toByteArray(Charsets.US_ASCII)
         )
     }

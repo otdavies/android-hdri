@@ -21,7 +21,12 @@ import java.util.Locale
 import kotlinx.coroutines.*
 
 @Composable
-internal fun ViewerScreen(file: File, name: String, back: () -> Unit) {
+internal fun ViewerScreen(
+    file: File,
+    name: String,
+    captureExposure: Float? = null,
+    back: () -> Unit,
+) {
     var view by remember { mutableStateOf<SphereViewer?>(null) }
     var environment by remember(file) { mutableStateOf<LightingEnvironment?>(null) }
     var ready by remember(file) { mutableStateOf(false) }
@@ -30,7 +35,10 @@ internal fun ViewerScreen(file: File, name: String, back: () -> Unit) {
     var progress by remember { mutableFloatStateOf(0f) }
     var exposure by rememberSaveable(file.path) { mutableFloatStateOf(0f) }
     var probes by rememberSaveable(file.path) { mutableStateOf(true) }
-    var linear by rememberSaveable(file.path) { mutableStateOf(false) }
+    var linear by rememberSaveable(file.path) { mutableStateOf(true) }
+    var reference by rememberSaveable(file.path) { mutableStateOf("Grey reference") }
+    var backdrop by rememberSaveable(file.path) { mutableStateOf(false) }
+    var zoom by rememberSaveable(file.path) { mutableFloatStateOf(1f) }
     var attempt by remember { mutableIntStateOf(0) }
     LaunchedEffect(file, attempt) {
         failure = null
@@ -97,12 +105,22 @@ internal fun ViewerScreen(file: File, name: String, back: () -> Unit) {
                         factory = { context ->
                             SphereViewer(context, light, { ready = true }, { failure = it }).also {
                                 view = it
+                                it.zoomChanged = { value -> zoom = value }
+                                it.setViewZoom(zoom)
                             }
                         },
                         update = {
                             it.probes = probes
                             it.exposure = exposure
                             it.linear = linear
+                            it.background = backdrop
+                            it.exposureScale =
+                                when (reference) {
+                                    "Capture exposure" -> captureExposure
+                                    "HDR 1×" -> 1f
+                                    else -> null
+                                }
+                            if (it.zoomFactor != zoom) it.setViewZoom(zoom)
                             it.requestRender()
                         },
                         modifier = Modifier.fillMaxSize(),
@@ -148,7 +166,40 @@ internal fun ViewerScreen(file: File, name: String, back: () -> Unit) {
                     Text("Chrome · ideal mirror", color = Muted, fontSize = 12.sp)
                     Text("Grey · 18% diffuse", color = Muted, fontSize = 12.sp)
                 }
-            Text("Drag to rotate the light", color = Muted, fontSize = 12.sp)
+            Text(
+                if (probes) "Drag to rotate the light" else "Drag to look around · pinch to zoom",
+                color = Muted,
+                fontSize = 12.sp,
+            )
+            if (!probes)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Zoom", Modifier.weight(1f))
+                    IconButton({ zoom = (zoom / 1.25f).coerceAtLeast(.5f) }, enabled = ready) {
+                        Icon(Icons.Outlined.ZoomOut, "Zoom out")
+                    }
+                    Text(String.format(Locale.US, "%.1f×", zoom))
+                    IconButton({ zoom = (zoom * 1.25f).coerceAtMost(4f) }, enabled = ready) {
+                        Icon(Icons.Outlined.ZoomIn, "Zoom in")
+                    }
+                }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    reference == "Grey reference",
+                    { reference = "Grey reference" },
+                    label = { Text("Meter grey") },
+                )
+                FilterChip(
+                    reference == "HDR 1×",
+                    { reference = "HDR 1×" },
+                    label = { Text("HDR 1×") },
+                )
+            }
+            if (captureExposure != null)
+                FilterChip(
+                    reference == "Capture exposure",
+                    { reference = "Capture exposure" },
+                    label = { Text("Capture exposure") },
+                )
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Exposure", Modifier.weight(1f))
                 IconButton({ exposure = (exposure - 1).coerceAtLeast(-8f) }, enabled = ready) {
@@ -162,18 +213,23 @@ internal fun ViewerScreen(file: File, name: String, back: () -> Unit) {
             Slider(exposure, { exposure = it }, valueRange = -8f..8f, steps = 63, enabled = ready)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Linear display", fontSize = 14.sp)
+                    Text("Reference sRGB", fontSize = 14.sp)
                     Text(
-                        if (linear) "sRGB · highlights clip at display white"
-                        else "Reinhard · gentle highlight roll-off",
+                        if (linear) "18% linear grey maps to 46% sRGB value"
+                        else "Reinhard tone mapping · compresses highlights and midtones",
                         color = Muted,
                         fontSize = 11.sp,
                     )
                 }
                 Switch(linear, { linear = it }, enabled = ready)
             }
+            if (probes)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Environment background", Modifier.weight(1f), fontSize = 14.sp)
+                    Switch(backdrop, { backdrop = it }, enabled = ready)
+                }
             Text(
-                "Preview only · HDR export stays unchanged. 0 EV normalizes mean light; values are relative, not a light-meter reading.",
+                "${reference}. Both spheres and the environment share one exposure. Grey is 18% reflectance; captured lighting is relative, not measured lux.",
                 color = Muted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,

@@ -24,6 +24,17 @@ data class LightingMap(val width: Int, val height: Int, val rgb: FloatArray) {
         return sum / (4 * PI)
     }
 
+    /** Exposure metering in log light; a tiny bright source must not set the whole display. */
+    fun geometricMeanLuminance(): Double {
+        var sum = 0.0
+        for (y in 0 until height) for (x in 0 until width) {
+            val i = (y * width + x) * 3
+            val value = .2126 * rgb[i] + .7152 * rgb[i + 1] + .0722 * rgb[i + 2]
+            sum += ln(max(1e-12, value)) * solidAngle(y)
+        }
+        return exp(sum / (4 * PI))
+    }
+
     /** Exact solid-angle weighted binning keeps small bright sources and polar energy. */
     fun reduced(w: Int, h: Int): LightingMap {
         require(width % w == 0 && height % h == 0)

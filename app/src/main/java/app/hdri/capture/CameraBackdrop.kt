@@ -59,6 +59,18 @@ internal class CameraBackdrop {
         glDeleteShader(f)
     }
 
+    fun drawNative(coordinates: FloatArray, transform: FloatArray) {
+        uv.position(0)
+        for (i in 0 until 4) {
+            val u = coordinates[i * 2]
+            val v = 1f - coordinates[i * 2 + 1]
+            uv.put(transform[0] * u + transform[4] * v + transform[12])
+            uv.put(transform[1] * u + transform[5] * v + transform[13])
+        }
+        uv.position(0)
+        draw(null)
+    }
+
     fun draw(frame: Frame?) {
         if (frame != null) {
             vertices.position(0)
