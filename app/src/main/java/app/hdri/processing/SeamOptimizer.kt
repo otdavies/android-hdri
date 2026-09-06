@@ -2,7 +2,11 @@ package app.hdri.processing
 
 import kotlin.math.*
 
-internal data class SeamLayer(val rgb: FloatArray, val weights: FloatArray)
+internal data class SeamLayer(
+    val rgb: FloatArray,
+    val weights: FloatArray,
+    val radii: FloatArray = FloatArray(weights.size),
+)
 
 /** Binary label swaps minimize disagreement along an entire boundary, including longitude wrap. */
 internal object SeamOptimizer {
@@ -16,6 +20,25 @@ internal object SeamOptimizer {
     ) {
         val n = w * h
         val ids = IntArray(n) { -1 }
+        val gradients =
+            layers.map { l ->
+                FloatArray(n) { p ->
+                    val right = p / w * w + (p % w + 1) % w
+                    val down = min(n - 1, p + w)
+                    var value = 0f
+                    for (c in 0..2) value +=
+                        abs(l.rgb[p * 3 + c] - l.rgb[right * 3 + c]) +
+                            abs(l.rgb[p * 3 + c] - l.rgb[down * 3 + c])
+                    min(4f, value / 3)
+                }
+            }
+        fun difference(p: Int, a: Int, b: Int): Float {
+            var value = .015f + .75f * max(gradients[a][p], gradients[b][p])
+            for (c in 0..2) value += abs(layers[a].rgb[p * 3 + c] - layers[b].rgb[p * 3 + c])
+            return min(value, 12f)
+        }
+        fun boundary(p: Int, q: Int, a: Int, b: Int) =
+            if (a == b) 0f else (difference(p, a, b) + difference(q, a, b)) * .5f
         repeat(2) { pass ->
             val pairs = sortedSetOf<Int>()
             for (y in 0 until h) for (x in 0 until w) {
@@ -44,24 +67,32 @@ internal object SeamOptimizer {
                 val graph = CutGraph(size + 2, size * 12 + 8)
                 val source = size
                 val sink = size + 1
-                fun difference(p: Int): Float {
-                    var value = .015f
-                    for (c in 0..2) value += abs(la.rgb[p * 3 + c] - lb.rgb[p * 3 + c])
-                    return min(value, 8f)
-                }
                 for (i in 0 until size) {
                     val p = pixels[i]
                     val x = p % w
                     val y = p / w
                     val wa = la.weights[p]
                     val wb = lb.weights[p]
-                    val ca = if (wa > .00001f) (-.12 * ln(wa.toDouble())).toFloat() else 10000f
-                    val cb = if (wb > .00001f) (-.12 * ln(wb.toDouble())).toFloat() else 10000f
+                    var ca = if (wa > .00001f) (-.12 * ln(wa.toDouble())).toFloat() else 10000f
+                    var cb = if (wb > .00001f) (-.12 * ln(wb.toDouble())).toFloat() else 10000f
+                    // Swapping a/b must include edges to fixed third labels. Omitting
+                    // these unaries can improve one seam while tearing an adjacent one.
+                    for (q in
+                        intArrayOf(
+                            y * w + (x + 1) % w,
+                            y * w + (x + w - 1) % w,
+                            if (y > 0) p - w else -1,
+                            if (y + 1 < h) p + w else -1,
+                        )) {
+                        if (q < 0 || ids[q] >= 0 || labels[q] < 0) continue
+                        ca += boundary(p, q, a, labels[q])
+                        cb += boundary(p, q, b, labels[q])
+                    }
                     graph.edge(source, i, cb, 0f)
                     graph.edge(i, sink, ca, 0f)
                     for (q in intArrayOf(y * w + (x + 1) % w, if (y + 1 < h) p + w else -1)) {
                         if (q < 0 || ids[q] < 0) continue
-                        val cost = (difference(p) + difference(q)) * .5f
+                        val cost = boundary(p, q, a, b)
                         graph.edge(i, ids[q], cost, cost)
                     }
                 }

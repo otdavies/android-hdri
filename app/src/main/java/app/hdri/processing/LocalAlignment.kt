@@ -3,7 +3,6 @@ package app.hdri.processing
 import app.hdri.core.*
 import kotlin.math.*
 import org.opencv.core.*
-import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 import org.opencv.video.DISOpticalFlow
 
@@ -23,8 +22,8 @@ internal object LocalAlignment {
         try {
             frames.forEach { f ->
                 check()
-                val image = Imgcodecs.imread(f.preview.path, Imgcodecs.IMREAD_GRAYSCALE)
-                val scale = min(1.0, 320.0 / max(image.cols(), image.rows()))
+                val image = AlignmentPreview.read(f.hdr, 480)
+                val scale = min(1.0, 480.0 / max(image.cols(), image.rows()))
                 Imgproc.resize(image, image, Size(image.cols() * scale, image.rows() * scale))
                 clahe.apply(image, image)
                 images += image
@@ -94,17 +93,19 @@ internal object LocalAlignment {
                     val ba = FloatArray(w * h * 2)
                     forward.get(0, 0, ab)
                     backward.get(0, 0, ba)
-                    for (y in 12 until h - 12 step 12) for (x in 12 until w - 12 step 12) {
+                    for (y in 12 until h - 12 step 8) for (x in 12 until w - 12 step 8) {
                         val p = y * w + x
                         val dx = ab[p * 2].toDouble()
                         val dy = ab[p * 2 + 1].toDouble()
-                        if (!dx.isFinite() || !dy.isFinite() || hypot(dx, dy) > 16.0) continue
+                        if (!dx.isFinite() || !dy.isFinite() || hypot(dx, dy) > 40.0) continue
                         val xx = (x + dx).roundToInt()
                         val yy = (y + dy).roundToInt()
                         if (xx !in 10 until w - 10 || yy !in 10 until h - 10) continue
                         val q = yy * w + xx
                         if (
-                            mx[p] < 0 || mx[q] < 0 || hypot(dx + ba[q * 2], dy + ba[q * 2 + 1]) > .8
+                            mx[p] < 0 ||
+                                mx[q] < 0 ||
+                                hypot(dx + ba[q * 2], dy + ba[q * 2 + 1]) > 1.0
                         )
                             continue
                         if (mx[(yy - 5) * w + xx - 5] < 0 || mx[(yy + 5) * w + xx + 5] < 0) continue
@@ -116,7 +117,7 @@ internal object LocalAlignment {
                         var count = 0
                         for (oy in -4..4) for (ox in -4..4) {
                             val av = (arrays[a][(y + oy) * w + x + ox].toInt() and 255).toDouble()
-                            val bv = (bytes[(yy + oy) * w + xx + ox].toInt() and 255).toDouble()
+                            val bv = sample(bytes, w, x + dx + ox, y + dy + oy)
                             sa += av
                             sb += bv
                             aa += av * av
@@ -127,8 +128,8 @@ internal object LocalAlignment {
                         val va = aa - sa * sa / count
                         val vb = bb - sb * sb / count
                         if (
-                            min(va, vb) / count < 35.0 ||
-                                (product - sa * sb / count) / sqrt(va * vb) < .9
+                            min(va, vb) / count < 6.0 ||
+                                (product - sa * sb / count) / sqrt(va * vb) < .92
                         )
                             continue
                         val u = la.ray(x.toDouble(), y.toDouble())
@@ -151,5 +152,17 @@ internal object LocalAlignment {
             clahe.collectGarbage()
             clahe.clear()
         }
+    }
+
+    private fun sample(values: ByteArray, w: Int, x: Double, y: Double): Double {
+        val ix = floor(x).toInt()
+        val iy = floor(y).toInt()
+        val u = x - ix
+        val v = y - iy
+        val p = iy * w + ix
+        return ((values[p].toInt() and 255) * (1 - u) + (values[p + 1].toInt() and 255) * u) *
+            (1 - v) +
+            ((values[p + w].toInt() and 255) * (1 - u) + (values[p + w + 1].toInt() and 255) * u) *
+                v
     }
 }

@@ -750,17 +750,7 @@ class CaptureEngine(
                             check(CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE in modes) {
                                 "The camera cannot keep a fixed tone curve for HDR reconstruction."
                             }
-                            val curve =
-                                FloatArray(32).also { a ->
-                                    for (k in 0..15) {
-                                        val x = k / 15f
-                                        a[k * 2] = x
-                                        a[k * 2 + 1] =
-                                            if (x <= .0031308f) 12.92f * x
-                                            else
-                                                (1.055 * x.toDouble().pow(1 / 2.4) - .055).toFloat()
-                                    }
-                                }
+                            val curve = Radiance.captureToneCurve()
                             set(
                                 CaptureRequest.TONEMAP_MODE,
                                 CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE,
@@ -1020,7 +1010,7 @@ class CaptureEngine(
                                 .normalized()
                         }
                 else null
-            // Zero is an assumed common optical center, never a measured translation.
+            // Translation is unmeasured. Zero is a placeholder, not an optical-centre constraint.
             val capture =
                 Capture(
                     p.id,
@@ -1029,7 +1019,7 @@ class CaptureEngine(
                     p.lens,
                     exposures,
                     findings,
-                    "game_rotation_vector_fixed_pivot",
+                    "game_rotation_vector_handheld",
                 )
             project =
                 store.update(project.id) {

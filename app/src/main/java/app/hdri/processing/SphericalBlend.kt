@@ -14,6 +14,7 @@ internal data class SeamMap(
     val labels: IntArray,
     val exposure: Double,
     val uncovered: List<V3>,
+    val photometry: OverlapPhotometry.Report,
 )
 
 /**
@@ -23,7 +24,7 @@ internal data class RenderReport(val decodes: Int, val cachePeakBytes: Long)
 
 internal object SphericalBlend {
 
-    private data class Warp(val image: Mat, val validity: Mat)
+    private data class Warp(val image: Mat, val validity: Mat, val radii: FloatArray)
 
     private fun warp(
         frame: Prepared,
@@ -43,6 +44,7 @@ internal object SphericalBlend {
         val mx = FloatArray(w * h) { -1f }
         val my = FloatArray(w * h) { -1f }
         val valid = FloatArray(w * h)
+        val radii = FloatArray(w * h)
         val displacement = DoubleArray(2)
         val sx = DoubleArray(w) { sin(((x0 + it + .5) / outW - .5) * 2 * PI) }
         val cx = DoubleArray(w) { cos(((x0 + it + .5) / outW - .5) * 2 * PI) }
@@ -69,13 +71,17 @@ internal object SphericalBlend {
                 val i = y * w + x
                 mx[i] = px.toFloat()
                 my[i] = py.toFloat()
+                radii[i] =
+                    (2 * ((px / lens.width - .5).pow(2) + (py / lens.height - .5).pow(2))).toFloat()
                 val edge =
                     min(
                         min(px / lens.width, 1 - px / lens.width),
                         min(py / lens.height, 1 - py / lens.height),
                     )
-                if (edge < .045) continue
-                valid[i] = (min(1.0, (edge - .045) * 5).pow(2)).toFloat()
+                // Coverage uses actual sampled pixels. The old 4.5% hard crop discarded
+                // usable overlap after parallax correction and manufactured coverage gaps.
+                if (px < 1 || py < 1 || px >= lens.width - 2 || py >= lens.height - 2) continue
+                valid[i] = max(.0001, min(1.0, edge * 5).pow(2)).toFloat()
             }
         }
         val mapX = Mat(h, w, CvType.CV_32FC1)
@@ -96,7 +102,7 @@ internal object SphericalBlend {
         )
         mapX.release()
         mapY.release()
-        return Warp(warped, mask)
+        return Warp(warped, mask, radii)
     }
 
     fun seams(
@@ -114,7 +120,7 @@ internal object SphericalBlend {
                 check()
                 progress(
                     "Choosing clean overlaps · ${index+1}/${frames.size}",
-                    .8 * index / frames.size,
+                    .5 * index / frames.size,
                 )
                 val image = FloatImages.read(frame.hdr)
                 val small = Mat()
@@ -133,16 +139,25 @@ internal object SphericalBlend {
                         scores[i] = weights[i]
                         labels[i] = index
                     }
-                    for (c in 0..2) rgb[i * 3 + c] = ln(1 + max(0f, rgb[i * 3 + c])).toFloat()
+                    for (c in 0..2) rgb[i * 3 + c] = ln(max(1e-8f, rgb[i * 3 + c])).toFloat()
                 }
-                SeamLayer(rgb, weights)
+                SeamLayer(rgb, weights, warp.radii)
             }
+        val photometry =
+            OverlapPhotometry.fit(
+                frames,
+                layers,
+                w,
+                h,
+                { p -> progress("Matching overlap brightness", .5 + .25 * p) },
+                check,
+            )
         SeamOptimizer.optimize(
             layers,
             labels,
             w,
             h,
-            { p -> progress("Finding continuous seams", .8 + .2 * p) },
+            { p -> progress("Finding continuous seams", .75 + .25 * p) },
             check,
         )
         var logLum = 0.0
@@ -153,9 +168,9 @@ internal object SphericalBlend {
             if (label >= 0) {
                 val l = layers[label]
                 val lum =
-                    .0722 * expm1(l.rgb[i * 3].toDouble()) +
-                        .7152 * expm1(l.rgb[i * 3 + 1].toDouble()) +
-                        .2126 * expm1(l.rgb[i * 3 + 2].toDouble())
+                    .0722 * exp(l.rgb[i * 3].toDouble()) +
+                        .7152 * exp(l.rgb[i * 3 + 1].toDouble()) +
+                        .2126 * exp(l.rgb[i * 3 + 2].toDouble())
                 logLum += ln(max(1e-6, lum))
                 count++
             } else if (i % 5 == 0) {
@@ -163,7 +178,7 @@ internal object SphericalBlend {
                 if (holes.size < 16 && holes.all { it.angle(ray) > 18 }) holes += ray
             }
         }
-        return SeamMap(w, h, labels, .18 / exp(logLum / max(1, count)), holes)
+        return SeamMap(w, h, labels, .18 / exp(logLum / max(1, count)), holes, photometry)
     }
 
     private fun intersects(
@@ -235,7 +250,7 @@ internal object SphericalBlend {
                     }
                 }
                 if (!has) return@forEachIndexed
-                val source = cache.get(frame.hdr)
+                val source = cache.get(frame.hdr) { OverlapPhotometry.apply(frame, it) }
                 val warp = warp(frame, source, x, y, w, h, outW, outH)
                 val mask = Mat(h, w, CvType.CV_32FC1)
                 mask.put(0, 0, maskData)

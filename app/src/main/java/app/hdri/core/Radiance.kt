@@ -10,6 +10,24 @@ object Radiance {
 
     fun response() = FloatArray(256 * 3) { linear((it / 3) / 255.0).toFloat() }
 
+    /** The exact piecewise-linear curve requested from Camera2, shared by capture and merge. */
+    fun captureToneCurve() =
+        FloatArray(32) { i ->
+            val x = (i / 2) / 15f
+            if (i % 2 == 0) x else srgb(x.toDouble()).toFloat()
+        }
+
+    fun cameraResponse(): FloatArray {
+        val points = captureToneCurve()
+        return FloatArray(768) { i ->
+            val z = (i / 3) / 255f
+            val hi = (1..15).firstOrNull { points[it * 2 + 1] >= z } ?: 15
+            val lo = hi - 1
+            val t = (z - points[lo * 2 + 1]) / (points[hi * 2 + 1] - points[lo * 2 + 1])
+            points[lo * 2] + t * (points[hi * 2] - points[lo * 2])
+        }
+    }
+
     data class Merge(val rgb: FloatArray, val clipped: Int, val moving: Int)
 
     /** Images and response are BGR; output is linear BGR. Normalize with measured shutter * ISO. */

@@ -53,3 +53,6 @@ Processing is user initiated and runs in a [mediaProcessing foreground service](
 5. Comparisons against a reference desktop stitching/HDR workflow on the same preserved exposure files, before adopting learned or dense local-warp methods.
 
 The exact device checklist is tracked separately. A passing emulator suite alone is insufficient evidence for these claims.
+
+
+The current handheld-input diagnosis, algorithm decisions, recent-paper review and validation scope are documented in [Handheld stitching](HANDHELD-STITCHING.md).

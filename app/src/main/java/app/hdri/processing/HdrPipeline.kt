@@ -13,7 +13,6 @@ import org.opencv.android.OpenCVLoader
 import org.opencv.core.*
 import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
-import org.opencv.photo.Photo
 
 class HdrPipeline(
     private val store: SessionStore,
@@ -68,82 +67,12 @@ class HdrPipeline(
         BracketAlignment.align(images, checkCancelled) { warnings += it }
 
     private fun response(): FloatArray {
-        progress("Measuring camera response", .02)
+        progress("Reading camera tone response", .02)
         checkCancelled()
-        // Prefer the richest middle exposure, avoiding a blank sky calibration.
-        val candidate =
-            project.captures.maxBy { capture ->
-                val image =
-                    Imgcodecs.imread(
-                        File(dir, capture.exposures[capture.exposures.size / 2].file).path,
-                        Imgcodecs.IMREAD_REDUCED_GRAYSCALE_8,
-                    )
-                if (image.empty()) return@maxBy 0.0
-                val mean = MatOfDouble()
-                val std = MatOfDouble()
-                Core.meanStdDev(image, mean, std)
-                val score = std.toArray().first()
-                image.release()
-                mean.release()
-                std.release()
-                score
-            }
-        val raw = load(candidate)
-        val images =
-            try {
-                align(raw)
-            } catch (e: Exception) {
-                raw.forEach { it.release() }
-                throw e
-            }
-        val response = Mat()
-        val times = Mat(candidate.exposures.size, 1, CvType.CV_32FC1)
-        times.put(0, 0, candidate.exposures.map { it.seconds.toFloat() }.toFloatArray())
-        val calibrator = Photo.createCalibrateDebevec(100, 20f, false)
-        try {
-            calibrator.process(images, response, times)
-            val curve = FloatArray(768)
-            response.get(0, 0, curve)
-            check(curve.all { it.isFinite() && it > 0 }) {
-                "The scene did not provide enough brightness variation to calibrate HDR. Include a textured, mid-brightness view and retry."
-            }
-            // A noisy response can wiggle slightly; large reversals indicate a failed calibration.
-            val reversals =
-                (1..254).count { z ->
-                    (0..2).any { c -> curve[(z + 1) * 3 + c] < curve[z * 3 + c] * .8f }
-                }
-            check(reversals < 20) {
-                "HDR response calibration was unstable. Try a static scene with varied brightness."
-            }
-            // All three capture tone curves are identical. Pool channel estimates so a
-            // blue-starved room cannot invent an unconstrained blue response. Saturated
-            // RGB exposures are downweighted together during merging (ISP color clipping).
-            var previous = 0f
-            for (z in 0..255) {
-                val a = curve[z * 3]
-                val b = curve[z * 3 + 1]
-                val c = curve[z * 3 + 2]
-                val pooled = max(previous, max(min(a, b), min(max(a, b), c)))
-                for (channel in 0..2) curve[z * 3 + channel] = pooled
-                previous = pooled
-            }
-            for (z in 0 until 8) for (channel in 0..2) curve[z * 3 + channel] =
-                curve[8 * 3 + channel] * z / 8f
-            File(cache, "response.json")
-                .writeText(
-                    JSONObject()
-                        .put("method", "Debevec-Malik, shared monotonic tone response")
-                        .put("bgrResponse", JSONArray(curve.toList()))
-                        .toString()
-                )
-            return curve
-        } finally {
-            raw.forEach { it.release() }
-            images.forEach { it.release() }
-            response.release()
-            times.release()
-            calibrator.clear()
-        }
+        // A single three-exposure bracket does not constrain a free 256-entry response.
+        // Its monotonic envelope can flatten whole tonal ranges. Camera2 already uses
+        // our fixed, identical RGB curve: invert that curve instead of guessing it again.
+        return if (project.sample) Radiance.response() else Radiance.cameraResponse()
     }
 
     fun run() = store.withFiles(project.id) { runWithFiles() }
@@ -191,7 +120,7 @@ class HdrPipeline(
                 val hdr = File(cache, "${capture.targetId}.f32")
                 val preview = File(cache, "${capture.targetId}.jpg")
                 val stamp = File(cache, "${capture.targetId}.stamp")
-                val key = "v8-$maxEdge-$responseHash-${capture.exposures}"
+                val key = "v11-$maxEdge-$responseHash-${capture.exposures}"
                 val metadata = runCatching { JSONObject(stamp.readText()) }.getOrNull()
                 if (hdr.isFile && preview.isFile && metadata?.optString("key") == key) {
                     val savedWarnings = metadata.getJSONArray("warnings")
@@ -325,8 +254,22 @@ class HdrPipeline(
             File(dir, "report.json")
                 .writeText(
                     JSONObject()
-                        .put("pipelineVersion", 2)
+                        .put("pipelineVersion", 3)
+                        .put(
+                            "cameraResponse",
+                            if (project.sample) "inverse sRGB (sample)"
+                            else "inverse fixed Camera2 contrast curve",
+                        )
                         .put("stageSeconds", timings)
+                        .put(
+                            "photometry",
+                            seams.photometry
+                                .json()
+                                .put(
+                                    "viewGainBgrEv",
+                                    JSONArray(frames.map { f -> f.logGain.map { it / ln(2.0) } }),
+                                ),
+                        )
                         .put("hdrStepSeconds", hdrSteps)
                         .put(
                             "render",
@@ -345,7 +288,10 @@ class HdrPipeline(
                                 .put("medianBeforeDegrees", registration.beforeDegrees)
                                 .put("medianAfterDegrees", registration.afterDegrees)
                                 .put("p90AfterDegrees", registration.p90Degrees)
-                                .put("localMeshes", registration.meshes),
+                                .put("localMeshes", registration.meshes)
+                                .put("meshBeforeDegrees", registration.meshBeforeDegrees)
+                                .put("meshAfterDegrees", registration.meshAfterDegrees)
+                                .put("meshP90Degrees", registration.meshP90Degrees),
                         )
                         .put("width", project.quality.outputWidth)
                         .put("height", project.quality.outputWidth / 2)

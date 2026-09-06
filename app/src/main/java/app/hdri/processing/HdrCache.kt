@@ -13,12 +13,18 @@ internal class HdrCache(private val budget: Long = 192L * 1024 * 1024) : AutoClo
     var peakBytes = 0L
         private set
 
-    fun get(file: File): Mat {
+    fun get(file: File, prepare: (Mat) -> Unit = {}): Mat {
         images[file.path]?.let {
             return it
         }
         val image = FloatImages.read(file)
         check(!image.empty()) { "A processed HDR image is missing. Retry processing." }
+        try {
+            prepare(image)
+        } catch (e: Exception) {
+            image.release()
+            throw e
+        }
         val size = image.total() * image.elemSize()
         val entries = images.entries.iterator()
         while (bytes + size > budget && entries.hasNext()) {

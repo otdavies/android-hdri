@@ -19,6 +19,8 @@ data class Prepared(
     var rotation: Q = capture.rotation,
 ) {
     internal var mesh: MeshWarp? = null
+    internal val logGain = DoubleArray(3)
+    internal val radialGain = DoubleArray(3)
 }
 
 internal data class Observation(val a: Int, val b: Int, val u: V3, val v: V3)
@@ -34,6 +36,9 @@ internal data class RegistrationReport(
     val meshes: Int,
     val focalScale: Double,
     val localMatches: Int,
+    val meshBeforeDegrees: Double,
+    val meshAfterDegrees: Double,
+    val meshP90Degrees: Double,
 )
 
 /** Gyro initializes a robust joint rotation solve; image evidence can correct accumulated drift. */
@@ -246,14 +251,13 @@ internal object Registration {
                 { p -> progress("Aligning overlap detail", .86 + .08 * p) },
                 check,
             )
-        frames.forEachIndexed { i, frame ->
-            check()
-            progress(
-                "Correcting small viewpoint shifts · ${i+1}/${frames.size}",
-                .94 + .06 * i / frames.size,
+        val meshReport =
+            JointMeshAlignment.fit(
+                frames,
+                corrected + local,
+                { p -> progress("Aligning handheld viewpoints", .94 + .06 * p) },
+                check,
             )
-            frame.mesh = MeshWarp.fit(i, frames, corrected + local)
-        }
         val isolated = links.count { it == 0 }
         return RegistrationReport(
             buildList {
@@ -261,10 +265,8 @@ internal object Registration {
                     add(
                         "$isolated directions have no reliable visual matches; gyro orientation is retained there. Inspect blank walls and sky seams."
                     )
-                if (percentile(after, .9) > 1.0)
-                    add(
-                        "Nearby objects or movement leave some alignment uncertainty. Inspect those seams in the viewer."
-                    )
+                if (meshReport.p90 > .5)
+                    add("Some overlapping views remain uncertain. Inspect the seams in the viewer.")
             },
             accepted,
             observations.size,
@@ -275,6 +277,9 @@ internal object Registration {
             frames.count { it.mesh != null },
             focal,
             local.size,
+            meshReport.before,
+            meshReport.after,
+            meshReport.p90,
         )
     }
 

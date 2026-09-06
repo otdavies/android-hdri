@@ -421,7 +421,7 @@ private fun Setup(
         )
         InfoCard(
             "01  Pivot, don’t walk",
-            "Wipe the main lens first. Rotate around that lens and keep nearby objects at least a metre away. Smudges can turn practical lights into broad glare.",
+            "Wipe the main lens first. Turn where you stand, aim at each dot, and pause until the photo is captured.",
         )
         InfoCard(
             "02  Align with each dot",
