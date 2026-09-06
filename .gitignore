@@ -8,3 +8,4 @@ candidate/
 verification/
 .idea/
 *.iml
+__pycache__/
