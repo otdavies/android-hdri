@@ -190,17 +190,20 @@ fun CaptureOverlay(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    val targetGuide = guide!!
                     GuidePill(
-                        if (abs(guide!!.yaw) <= 4.5) "↔ On target"
-                        else "${if(guide.yaw>0) "→" else "←"} ${abs(guide.yaw).roundToInt()}°",
+                        if (aligned) "↔ On target"
+                        else
+                            "${if(targetGuide.yaw>0) "→" else "←"} ${abs(targetGuide.yaw).roundToInt()}°",
                         Modifier.weight(1f),
                     )
                     GuidePill(
-                        if (abs(guide.pitch) <= 4.5) "↕ On target"
-                        else "${if(guide.pitch>0) "↑" else "↓"} ${abs(guide.pitch).roundToInt()}°",
+                        if (aligned) "↕ On target"
+                        else
+                            "${if(targetGuide.pitch>0) "↑" else "↓"} ${abs(targetGuide.pitch).roundToInt()}°",
                         Modifier.weight(1f),
                     )
-                    LevelAssist(guide.roll, guide.canLevel)
+                    LevelAssist(targetGuide.roll, targetGuide.canLevel)
                 }
             if (!state.ready && state.error == null)
                 LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))

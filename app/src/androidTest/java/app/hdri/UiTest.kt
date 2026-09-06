@@ -97,6 +97,12 @@ class UiTest {
         rule.onNodeWithText("Capture now").assertIsNotEnabled()
         screenshot("capture-guidance.png")
         rule.runOnUiThread {
+            state.value = state.value.copy(guide = AimGuide(3.9f, 3.9f, 0f), aimDegrees = 5.5f)
+        }
+        rule.onNodeWithText("→ 4°").assertIsDisplayed()
+        rule.onNodeWithText("↑ 4°").assertIsDisplayed()
+        rule.onNodeWithText("Capture now").assertIsNotEnabled()
+        rule.runOnUiThread {
             state.value =
                 state.value.copy(
                     message = "Nice aim · capturing automatically",
