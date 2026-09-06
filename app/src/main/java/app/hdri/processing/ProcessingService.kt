@@ -113,6 +113,15 @@ class ProcessingService : Service() {
                     store.update(id) {
                         it.copy(state = "paused", stage = "Processing paused", error = null)
                     }
+                    getSystemService(NotificationManager::class.java)
+                        .notify(
+                            NOTIFICATION,
+                            notification(
+                                "Processing paused · originals are saved",
+                                mutable.value.progress,
+                                false,
+                            ),
+                        )
                 } catch (e: Exception) {
                     store.update(id) {
                         it.copy(

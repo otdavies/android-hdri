@@ -126,6 +126,16 @@ class PipelineTest {
         val store = SessionStore(context)
         val initial = store.create(Quality.QUICK, true)
         val p = SampleCapture.create(store, initial, { _, _ -> }, {})
+        // A genuinely clipped bracket must still report its limitation after a paused
+        // process reuses that bracket's checkpoint. Other views provide calibration.
+        val clipped = Mat(240, 320, CvType.CV_8UC3, Scalar.all(255.0))
+        try {
+            p.captures.first().exposures.forEach {
+                assertTrue(Imgcodecs.imwrite(File(store.dir(p.id), it.file).path, clipped))
+            }
+        } finally {
+            clipped.release()
+        }
         var cancel = false
         try {
             HdrPipeline(
@@ -148,6 +158,20 @@ class PipelineTest {
             assertFalse(File(store.dir(p.id), "environment.hdr").exists())
             assertTrue(
                 File(store.dir(p.id), "processed/${p.captures.first().targetId}.hdr").exists()
+            )
+            val checkpoint = File(store.dir(p.id), "processed/${p.captures.first().targetId}.hdr")
+            val savedAt = checkpoint.lastModified()
+            HdrPipeline(store, store.read(p.id), { _, _ -> }, {}).run()
+            assertEquals(
+                "The first HDR checkpoint should be reused",
+                savedAt,
+                checkpoint.lastModified(),
+            )
+            assertTrue(
+                "Clipping findings must survive resume",
+                store.read(p.id).warnings.any {
+                    it.startsWith("Direction 1:") && it.contains("lower bound")
+                },
             )
         } finally {
             store.delete(p.id)

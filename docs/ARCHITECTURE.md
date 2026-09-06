@@ -3,7 +3,7 @@
 - `CaptureEngine`: one ARCore shared session, Camera2 callback thread, OpenGL preview and gyroscope stream. Capturing requires valid tracking, correct aim, steady orientation and acceptable translation. The GL thread never decodes or writes a photo.
 - `SessionStore`: versioned JSON manifests through Android AtomicFile. A completed bracket appears in the manifest only after all timestamp-matched exposure files are durable. No network or external storage permission is needed.
 - `HdrPipeline`: reduced source decode → exposure alignment → one shared response calibration → radiance merge/checkpoints → overlap registration → coverage/seam selection → float multiband tiles → RGBE/JPEG/report.
-- `ProcessingService`: one active process, native work off the main thread, persistent notification, pause, thermal handling, storage checks, timeout handling and bounded wake lock. Retry validates HDR checkpoint fingerprints.
+- `ProcessingService`: one active process, native work off the main thread, persistent notification, pause, thermal handling, storage checks, timeout handling and bounded wake lock. Retry validates HDR checkpoint fingerprints and restores each checkpoint's clipping, motion and bracket-alignment findings. Pausing leaves a dismissible notification with the saved state.
 - `AppViewModel`: lifecycle-retained navigation, asynchronous repository reads, SAF export with visible byte progress, and foreground-service state observation.
 - Compose screens: home, capture setup, live capture, processing/quality review, and interactive spherical preview.
 

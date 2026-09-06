@@ -127,7 +127,13 @@ class HdrPipeline(
                 score
             }
         val raw = load(candidate)
-        val images = align(raw)
+        val images =
+            try {
+                align(raw)
+            } catch (e: Exception) {
+                raw.forEach { it.release() }
+                throw e
+            }
         val response = Mat()
         val times = Mat(candidate.exposures.size, 1, CvType.CV_32FC1)
         times.put(0, 0, candidate.exposures.map { it.seconds.toFloat() }.toFloatArray())
@@ -194,15 +200,25 @@ class HdrPipeline(
                 val hdr = File(cache, "${capture.targetId}.hdr")
                 val preview = File(cache, "${capture.targetId}.jpg")
                 val stamp = File(cache, "${capture.targetId}.stamp")
-                val key = "v1-$maxEdge-$responseHash-${capture.exposures}"
-                if (hdr.isFile && preview.isFile && stamp.isFile && stamp.readText() == key) {
+                val key = "v2-$maxEdge-$responseHash-${capture.exposures}"
+                val metadata = runCatching { JSONObject(stamp.readText()) }.getOrNull()
+                if (hdr.isFile && preview.isFile && metadata?.optString("key") == key) {
+                    val savedWarnings = metadata.getJSONArray("warnings")
+                    for (i in 0 until savedWarnings.length()) warnings += savedWarnings.getString(i)
                     val thumb = Imgcodecs.imread(preview.path)
                     val lens = capture.lens.scaled(thumb.cols(), thumb.rows())
                     thumb.release()
                     return@mapIndexed Prepared(capture, lens, hdr, preview)
                 }
+                val warningStart = warnings.size
                 val raw = load(capture)
-                val aligned = align(raw)
+                val aligned =
+                    try {
+                        align(raw)
+                    } catch (e: Exception) {
+                        raw.forEach { it.release() }
+                        throw e
+                    }
                 try {
                     val bytes =
                         aligned.map { m ->
@@ -234,7 +250,14 @@ class HdrPipeline(
                         check(Imgcodecs.imwrite(preview.path, aligned[aligned.size / 2])) {
                             "Could not save alignment preview."
                         }
-                        stamp.writeText(key)
+                        // Commit metadata last. A partial stamp cannot validate a checkpoint,
+                        // and a reused checkpoint must retain the original quality findings.
+                        stamp.writeText(
+                            JSONObject()
+                                .put("key", key)
+                                .put("warnings", JSONArray(warnings.drop(warningStart)))
+                                .toString()
+                        )
                     } finally {
                         linear.release()
                     }
