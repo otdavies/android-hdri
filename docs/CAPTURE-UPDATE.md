@@ -26,4 +26,33 @@ The source now uses a continuous smooth floor transition and a smooth sky gradie
 
 Regression tests cover handheld jitter at 15/30/60 fps, aim hysteresis, tracking loss, stale frames, deliberate sweeps, gyro oscillation versus real motion, guidance axes and polar leveling, and continuity of the synthetic light field. An independent native renderer test stitches a known smooth radiance field and measures horizontal bands, longitude closure and brightness bias. The production HUD is rendered with supplied test state so arrows, automatic progress and fallback-button behavior can be checked without pretending the emulator has Pixel 8 AR hardware.
 
-Physical confirmation of the new shutter tolerances and a complete real Pixel 8 sphere remain necessary. CI results and retained screenshots will be linked after the release gate completes.
+Physical confirmation of the new shutter tolerances and a complete real Pixel 8 sphere remain necessary.
+
+## Verified release
+
+[Preview 7 APK](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.7/hdri-0.1.0-preview.apk) was built from `19b4fb012b8a6f61e6bafbf41849914245874de4` and passed [Actions run 34009178772](https://github.com/otdavies/android-hdri/actions/runs/34009178772). Sixteen JVM tests, Android lint and eight installed-APK tests passed. The device suite completed in 37.346 seconds. The published APK is the same binary installed and tested by the device job.
+
+APK SHA-256: `2f10ff426231c37de623f41ef0ff5d07d47edcbd47e7a57d6fe2cb99775bbeee`.
+
+| Check | Result |
+| --- | --- |
+| New 37-direction analytic sample coverage | 100% on the seam grid |
+| Sample median relative radiance error after one global exposure scale | 14.06% |
+| Sample processing time on this emulator, excluding generation | 8.417 s |
+| Smooth-field maximum change in row-average relative error between adjacent rows | 0.286% |
+| Smooth-field maximum longitude-edge relative difference | 0.980% |
+| Smooth-field maximum row-average relative brightness bias | 1.394% |
+
+These are synthetic fixture measurements, not physical camera or phone-performance claims. The changed sample lighting and denser capture plan make its radiance error a different fixture from the original preview. [Machine-readable results](evidence/capture-update.json) are retained. The downloaded verification ZIP was SHA-256 checked before inspection.
+
+The following screenshots show the production HUD rendered in the emulator over a supplied plain background, with explicit test poses. They verify layout, contrast and state transitions; they do not imply an emulator AR capture. The regression also checks a diagonal offset where both individual axes appear close but the combined angle is still outside the automatic shutter's entry window.
+
+<img src="evidence/capture-guidance.png" width="280" alt="Directional glow, chevrons, turn and tilt angles, and optional phone leveling"> <img src="evidence/capture-aligned.png" width="280" alt="Aligned automatic capture with a filling shutter ring">
+
+Newly generated sample output, with the former hard floor boundary replaced by a continuous transition:
+
+![Updated synthetic HDR sample preview](evidence/sample-handheld.jpg)
+
+Independent renderer output for a smooth known radiance field:
+
+![Smooth-field stitching regression output](evidence/smooth-field.jpg)

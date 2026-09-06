@@ -1,0 +1,18 @@
+{
+  "workflowRun": 34009178772,
+  "sourceCommit": "19b4fb012b8a6f61e6bafbf41849914245874de4",
+  "jvmTestsPassed": 16,
+  "installedApkTestsPassed": 8,
+  "instrumentationDurationSeconds": 37.346,
+  "sample": {
+    "durationSeconds": 8.417,
+    "coverage": 1,
+    "medianRelativeRadianceError": 0.14063895033639587,
+    "sessionId": "6bce8ed7-8425-461a-b848-8be0dc65bbe9"
+  },
+  "smoothField": {
+    "maxAdjacentRowRelativeErrorChange": 0.00286256199695825,
+    "maxLongitudeRelativeDifference": 0.00980392156862745,
+    "maxRowRelativeBias": 0.013942466312120988
+  }
+}

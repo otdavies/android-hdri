@@ -1,5 +1,7 @@
 # Validation record · 0.1.0
 
+The latest [handheld capture update](CAPTURE-UPDATE.md#verified-release) adds forgiving automatic capture, directional guidance, and a continuous sample light field. Preview 7 passed 16 JVM tests and 8 installed-APK tests; its screenshots, renderer continuity measurements and APK link are recorded there. The original preview baseline below is retained for reference.
+
 ## Local build
 
 Passed with JDK 17, Android SDK 35 and the copied Gradle 8.11.1 / AGP 8.9.2 / Kotlin 2.0.21 toolchain:
