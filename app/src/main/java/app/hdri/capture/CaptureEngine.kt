@@ -622,6 +622,13 @@ class CaptureEngine(
             check(times.size >= 3) {
                 "This scene exceeds the camera's bracket range. Aim at a mid-brightness area and retry."
             }
+            // Freeze the preview's settled focus across the bracket. Jumping to infinity
+            // here changed sharpness and magnification during indoor captures.
+            val focus =
+                (result.get(CaptureResult.LENS_FOCUS_DISTANCE) ?: 0f).coerceIn(
+                    0f,
+                    c.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE) ?: 0f,
+                )
             pending = Pending(id, q, captureOffset, lens, times.size)
             state.value =
                 state.value.copy(
@@ -653,7 +660,7 @@ class CaptureEngine(
                             set(CaptureRequest.SENSOR_FRAME_DURATION, max(33_333_333L, time))
                             set(CaptureRequest.FLASH_MODE, CaptureRequest.FLASH_MODE_OFF)
                             set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
-                            set(CaptureRequest.LENS_FOCUS_DISTANCE, 0f)
+                            set(CaptureRequest.LENS_FOCUS_DISTANCE, focus)
                             // Fixed daylight balance preserves illuminant color across every
                             // direction.
                             val wb =

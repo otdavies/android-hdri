@@ -6,7 +6,6 @@ import java.io.File
 import java.io.FileOutputStream
 import kotlin.math.*
 import org.opencv.core.*
-import org.opencv.imgcodecs.Imgcodecs
 import org.opencv.imgproc.Imgproc
 
 internal data class SeamMap(
@@ -20,8 +19,9 @@ internal data class SeamMap(
 /**
  * Spherical inverse warping avoids pole singularities and includes longitude wrap in every tile.
  */
+internal data class RenderReport(val decodes: Int, val cachePeakBytes: Long)
+
 internal object SphericalBlend {
-    private data class Layer(val rgb: FloatArray, val weights: FloatArray)
 
     private data class Warp(val image: Mat, val validity: Mat)
 
@@ -43,6 +43,7 @@ internal object SphericalBlend {
         val mx = FloatArray(w * h) { -1f }
         val my = FloatArray(w * h) { -1f }
         val valid = FloatArray(w * h)
+        val displacement = DoubleArray(2)
         val sx = DoubleArray(w) { sin(((x0 + it + .5) / outW - .5) * 2 * PI) }
         val cx = DoubleArray(w) { cos(((x0 + it + .5) / outW - .5) * 2 * PI) }
         for (y in 0 until h) {
@@ -56,17 +57,24 @@ internal object SphericalBlend {
                 val ay = rx.y * wx + ry.y * sp + rz.y * wz
                 val az = rx.z * wx + ry.z * sp + rz.z * wz
                 if (az >= -.01) continue
-                val px = lens.cx - lens.fx * ax / az
-                val py = lens.cy + lens.fy * ay / az
+                var px = lens.cx - lens.fx * ax / az
+                var py = lens.cy + lens.fy * ay / az
+                frame.mesh?.let { mesh ->
+                    mesh.offset(px / lens.width, py / lens.height, displacement)
+                    px += displacement[0] * lens.width
+                    py += displacement[1] * lens.height
+                }
+                // Extend the actual image edge into the pyramid halo. Invalid (-1,-1)
+                // everywhere used to smear the source's top-left color into every seam.
+                val i = y * w + x
+                mx[i] = px.toFloat()
+                my[i] = py.toFloat()
                 val edge =
                     min(
                         min(px / lens.width, 1 - px / lens.width),
                         min(py / lens.height, 1 - py / lens.height),
                     )
                 if (edge < .045) continue
-                val i = y * w + x
-                mx[i] = px.toFloat()
-                my[i] = py.toFloat()
                 valid[i] = (min(1.0, (edge - .045) * 5).pow(2)).toFloat()
             }
         }
@@ -108,7 +116,7 @@ internal object SphericalBlend {
                     "Choosing clean overlaps · ${index+1}/${frames.size}",
                     .8 * index / frames.size,
                 )
-                val image = Imgcodecs.imread(frame.hdr.path, Imgcodecs.IMREAD_UNCHANGED)
+                val image = FloatImages.read(frame.hdr)
                 val small = Mat()
                 Imgproc.resize(image, small, Size(480.0, 480.0 * image.rows() / image.cols()))
                 image.release()
@@ -127,49 +135,16 @@ internal object SphericalBlend {
                     }
                     for (c in 0..2) rgb[i * 3 + c] = ln(1 + max(0f, rgb[i * 3 + c])).toFloat()
                 }
-                Layer(rgb, weights)
+                SeamLayer(rgb, weights)
             }
-        // Edge-aware label optimization: avoid a boundary where two photos disagree.
-        // Wrap left/right neighbours; poles have no artificial north/south adjacency.
-        repeat(3) { pass ->
-            check()
-            progress("Refining seams · ${pass+1}/3", .8 + .2 * pass / 3.0)
-            for (y in 0 until h) for (x in 0 until w) {
-                val i = y * w + x
-                if (labels[i] < 0) continue
-                val neighbours =
-                    intArrayOf(
-                        y * w + (x + w - 1) % w,
-                        y * w + (x + 1) % w,
-                        max(0, y - 1) * w + x,
-                        min(h - 1, y + 1) * w + x,
-                    )
-                val candidates =
-                    (listOf(labels[i]) + neighbours.map { labels[it] }).distinct().filter {
-                        it >= 0 && layers[it].weights[i] > .0001f
-                    }
-                var best = labels[i]
-                var cost = Double.POSITIVE_INFINITY
-                candidates.forEach { candidate ->
-                    val layer = layers[candidate]
-                    var energy = -.08 * ln(layer.weights[i].toDouble().coerceAtLeast(1e-7))
-                    neighbours.forEach { ni ->
-                        val other = labels[ni]
-                        if (other >= 0 && other != candidate) {
-                            var difference = 0.0
-                            for (c in 0..2) difference +=
-                                abs(layer.rgb[i * 3 + c] - layers[other].rgb[i * 3 + c])
-                            energy += .13 + min(3.0, difference) * .45
-                        }
-                    }
-                    if (energy < cost) {
-                        cost = energy
-                        best = candidate
-                    }
-                }
-                labels[i] = best
-            }
-        }
+        SeamOptimizer.optimize(
+            layers,
+            labels,
+            w,
+            h,
+            { p -> progress("Finding continuous seams", .8 + .2 * p) },
+            check,
+        )
         var logLum = 0.0
         var count = 0
         val holes = mutableListOf<V3>()
@@ -219,6 +194,7 @@ internal object SphericalBlend {
     private fun blendTile(
         frames: List<Prepared>,
         seams: SeamMap,
+        cache: HdrCache,
         x: Int,
         y: Int,
         w: Int,
@@ -259,10 +235,8 @@ internal object SphericalBlend {
                     }
                 }
                 if (!has) return@forEachIndexed
-                val source = Imgcodecs.imread(frame.hdr.path, Imgcodecs.IMREAD_UNCHANGED)
-                check(!source.empty()) { "A processed HDR tile is missing. Retry processing." }
+                val source = cache.get(frame.hdr)
                 val warp = warp(frame, source, x, y, w, h, outW, outH)
-                source.release()
                 val mask = Mat(h, w, CvType.CV_32FC1)
                 mask.put(0, 0, maskData)
                 Core.multiply(mask, warp.validity, mask)
@@ -324,12 +298,15 @@ internal object SphericalBlend {
         jpegFile: File,
         progress: (String, Double) -> Unit,
         check: () -> Unit,
-    ) {
+    ): RenderReport {
         val height = width / 2
         val halo = 64
         val tileW = 512
-        val stripH = 128
+        val stripH = 256
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val cache = HdrCache()
+        val tone =
+            IntArray(65536) { (Radiance.srgb(it / 65535.0) * 255).roundToInt().coerceIn(0, 255) }
         try {
             HdrWriter(FileOutputStream(hdrFile).buffered(128 * 1024), width, height).use { writer ->
                 for (y in 0 until height step stripH) {
@@ -348,6 +325,7 @@ internal object SphericalBlend {
                             blendTile(
                                 frames,
                                 seams,
+                                cache,
                                 x - halo,
                                 top,
                                 tw + halo * 2,
@@ -370,9 +348,8 @@ internal object SphericalBlend {
                         val p = i * 3
                         fun channel(v: Float): Int {
                             val value = max(0.0, v * seams.exposure)
-                            return (Radiance.srgb(value / (1 + value)) * 255)
-                                .roundToInt()
-                                .coerceIn(0, 255)
+                            return tone[
+                                (value / (1 + value) * 65535).roundToInt().coerceIn(0, 65535)]
                         }
                         pixels[i] =
                             (255 shl 24) or
@@ -395,7 +372,9 @@ internal object SphericalBlend {
                 }
                 it.fd.sync()
             }
+            return RenderReport(cache.decodes, cache.peakBytes)
         } finally {
+            cache.close()
             bitmap.recycle()
         }
     }

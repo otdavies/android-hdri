@@ -622,6 +622,13 @@ private fun Details(
                     TextButton({ vm.reviewed(p.id) }) { Text("Mark as reviewed") }
                 }
             }
+            OutlinedButton(
+                process,
+                Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) {
+                Text("Rebuild from saved photos")
+            }
             PrimaryAction("Save HDR environment", { export("environment.hdr") })
             OutlinedButton(
                 { export("preview.jpg") },

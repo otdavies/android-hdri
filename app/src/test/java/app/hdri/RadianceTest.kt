@@ -28,6 +28,34 @@ class RadianceTest {
     }
 
     @Test
+    fun warmHdrGradientHasNoHardExposureSelectionContours() {
+        val times = doubleArrayOf(.004, .016, .064, .256, 1.0)
+        val images =
+            times.mapIndexed { exposure, t ->
+                ByteArray(768 * 3) { i ->
+                    val x = (i / 3) / 767.0
+                    val light =
+                        when (i % 3) {
+                            0 -> .03 + x * .5
+                            1 -> .8 + x
+                            else -> 2.0 + x * 3
+                        }
+                    // Model exposure-dependent ISP disagreement in an underexposed channel.
+                    val bias = if (i % 3 == 0 && exposure < 2) 2.0 else 1.0
+                    (Radiance.srgb((light * t * bias).coerceIn(0.0, 1.0)) * 255)
+                        .roundToInt()
+                        .toByte()
+                }
+            }
+        val result = Radiance.merge(images, times, Radiance.response()).rgb
+        for (c in 0..2) {
+            val peak = (0 until 768).maxOf { result[it * 3 + c] }
+            val jump = (1 until 768).maxOf { abs(result[it * 3 + c] - result[(it - 1) * 3 + c]) }
+            assertTrue("Channel $c contour: $jump / $peak", jump < peak * .025)
+        }
+    }
+
+    @Test
     fun rgbePreservesHdrAndChannelOrder() {
         val values =
             listOf(

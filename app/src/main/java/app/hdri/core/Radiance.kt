@@ -26,56 +26,52 @@ object Radiance {
         var moving = 0
         val shortest = times.indices.minBy { times[it] }
         val longest = times.indices.maxBy { times[it] }
+        val radiance = times.map { time -> DoubleArray(768) { response[it] / time } }
+        val threshold = exp(.55)
+        val weights = DoubleArray(images.size)
+        val luminance = DoubleArray(images.size)
         var p = 0
         while (p < out.size) {
+            var total = 0.0
             var reference = 0
-            var best = -1
+            var best = 0.0
             for (i in images.indices) {
-                var weight = 255
+                var peak = 0
+                var light = 0.0
                 for (c in 0..2) {
                     val z = images[i][p + c].toInt() and 255
-                    weight = min(weight, min(z, 255 - z))
+                    peak = max(peak, z)
+                    light += radiance[i][z * 3 + c]
                 }
-                if (weight > best) {
-                    best = weight
+                // JPEG color becomes unreliable when ANY channel clips (often before
+                // white balance in the ISP). Use one continuous RGB weight, based on the
+                // brightest channel. A naturally dark blue channel must not block HDR.
+                val w = min(peak, 255 - peak).toDouble()
+                weights[i] = w * w
+                total += weights[i]
+                luminance[i] = light + 1e-8
+                if (weights[i] > best) {
+                    best = weights[i]
                     reference = i
                 }
             }
-            var referenceL = 0.0
-            for (c in 0..2) {
-                val z = images[reference][p + c].toInt() and 255
-                referenceL += response[z * 3 + c] / times[reference]
-            }
             var moved = false
+            for (i in images.indices) if (weights[i] > best * .1 && best > 324 && i != reference) {
+                val light = luminance[i]
+                val ref = luminance[reference]
+                if (light > ref * threshold || light * threshold < ref) moved = true
+            }
             for (c in 0..2) {
                 var sum = 0.0
-                var weights = 0.0
-                for (i in images.indices) {
-                    val z = images[i][p + c].toInt() and 255
-                    if (z < 4 || z > 251) continue
-                    var l = 0.0
-                    for (k in 0..2) {
-                        val a = images[i][p + k].toInt() and 255
-                        l += response[a * 3 + k] / times[i]
-                    }
-                    if (
-                        best > 18 &&
-                            i != reference &&
-                            abs(ln((l + 1e-8) / (referenceL + 1e-8))) > .55
-                    ) {
-                        moved = true
-                        continue
-                    }
-                    val w = min(z, 255 - z).toDouble().pow(2)
-                    sum += response[z * 3 + c] / times[i] * w
-                    weights += w
-                }
-                if (weights > 0) out[p + c] = (sum / weights).toFloat()
+                for (i in images.indices) sum +=
+                    radiance[i][(images[i][p + c].toInt() and 255) * 3 + c] * weights[i]
+                if (total > 0) out[p + c] = (sum / total).toFloat()
                 else {
                     val i =
-                        if ((images[shortest][p + c].toInt() and 255) > 251) shortest else longest
-                    val z = images[i][p + c].toInt() and 255
-                    out[p + c] = (response[z * 3 + c] / times[i]).toFloat()
+                        if ((0..2).any { (images[shortest][p + it].toInt() and 255) > 251 })
+                            shortest
+                        else longest
+                    out[p + c] = radiance[i][(images[i][p + c].toInt() and 255) * 3 + c].toFloat()
                 }
                 if (!out[p + c].isFinite() || out[p + c] < 0) out[p + c] = 0f
             }
@@ -112,14 +108,29 @@ class HdrWriter(private val stream: OutputStream, private val width: Int, height
         )
     }
 
+    private val channels = Array(4) { ByteArray(width) }
+    private val marker = byteArrayOf(2, 2, (width shr 8).toByte(), width.toByte())
+
     fun row(bgr: FloatArray, offset: Int = 0) {
         require(bgr.size - offset >= width * 3)
-        stream.write(byteArrayOf(2, 2, (width shr 8).toByte(), width.toByte()))
-        val channels = Array(4) { ByteArray(width) }
+        stream.write(marker)
         for (x in 0 until width) {
             val p = offset + x * 3
-            val bytes = Radiance.rgbe(bgr[p + 2], bgr[p + 1], bgr[p])
-            for (c in 0..3) channels[c][x] = bytes[c]
+            val r = bgr[p + 2]
+            val g = bgr[p + 1]
+            val b = bgr[p]
+            require(r.isFinite() && g.isFinite() && b.isFinite())
+            val maximum = max(r, max(g, b))
+            if (maximum < 1e-32f) {
+                for (c in 0..3) channels[c][x] = 0
+                continue
+            }
+            val exponent = Math.getExponent(maximum) + 1
+            val scale = Math.scalb(256.0, -exponent)
+            channels[0][x] = (r * scale).toInt().coerceIn(0, 255).toByte()
+            channels[1][x] = (g * scale).toInt().coerceIn(0, 255).toByte()
+            channels[2][x] = (b * scale).toInt().coerceIn(0, 255).toByte()
+            channels[3][x] = (exponent + 128).coerceIn(0, 255).toByte()
         }
         channels.forEach { channel ->
             var x = 0

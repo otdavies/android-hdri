@@ -64,49 +64,8 @@ class HdrPipeline(
         }
     }
 
-    private fun align(images: List<Mat>): List<Mat> {
-        val aligned = mutableListOf<Mat>()
-        val aligner = Photo.createAlignMTB(5, 4, false)
-        val reference = Mat()
-        Imgproc.cvtColor(images[images.size / 2], reference, Imgproc.COLOR_BGR2GRAY)
-        try {
-            // OpenCV's generated Java batch binding converts the output list as an input
-            // vector and does not return newly allocated Mats. Use explicit output Mats.
-            images.forEachIndexed { index, source ->
-                checkCancelled()
-                val gray = Mat()
-                val output = Mat()
-                try {
-                    Imgproc.cvtColor(source, gray, Imgproc.COLOR_BGR2GRAY)
-                    var shift =
-                        if (index == images.size / 2) Point()
-                        else aligner.calculateShift(reference, gray)
-                    val limit = min(source.cols(), source.rows()) * .04
-                    if (abs(shift.x) > limit || abs(shift.y) > limit) {
-                        // A very dark/flat exposure can give an arbitrary MTB displacement.
-                        // Preserve its capture prior; never apply a shift beyond valid overlap.
-                        shift = Point()
-                        warnings +=
-                            "Some exposures had too little detail for reliable bracket alignment. Inspect the sphere for ghosting."
-                    }
-                    aligner.shiftMat(source, output, shift)
-                    aligned += output
-                } catch (e: Exception) {
-                    output.release()
-                    throw e
-                } finally {
-                    gray.release()
-                }
-            }
-            return aligned
-        } catch (e: Exception) {
-            aligned.forEach { it.release() }
-            throw e
-        } finally {
-            reference.release()
-            aligner.clear()
-        }
-    }
+    private fun align(images: List<Mat>): List<Mat> =
+        BracketAlignment.align(images, checkCancelled) { warnings += it }
 
     private fun response(): FloatArray {
         progress("Measuring camera response", .02)
@@ -156,10 +115,24 @@ class HdrPipeline(
             check(reversals < 20) {
                 "HDR response calibration was unstable. Try a static scene with varied brightness."
             }
+            // All three capture tone curves are identical. Pool channel estimates so a
+            // blue-starved room cannot invent an unconstrained blue response. Saturated
+            // RGB exposures are downweighted together during merging (ISP color clipping).
+            var previous = 0f
+            for (z in 0..255) {
+                val a = curve[z * 3]
+                val b = curve[z * 3 + 1]
+                val c = curve[z * 3 + 2]
+                val pooled = max(previous, max(min(a, b), min(max(a, b), c)))
+                for (channel in 0..2) curve[z * 3 + channel] = pooled
+                previous = pooled
+            }
+            for (z in 0 until 8) for (channel in 0..2) curve[z * 3 + channel] =
+                curve[8 * 3 + channel] * z / 8f
             File(cache, "response.json")
                 .writeText(
                     JSONObject()
-                        .put("method", "Debevec-Malik")
+                        .put("method", "Debevec-Malik, shared monotonic tone response")
                         .put("bgrResponse", JSONArray(curve.toList()))
                         .toString()
                 )
@@ -174,7 +147,18 @@ class HdrPipeline(
     }
 
     fun run() {
-        val started = System.currentTimeMillis()
+        val started = System.nanoTime()
+        var stageStart = started
+        val timings = JSONObject()
+        val hdrSteps = JSONObject()
+        fun recordHdr(name: String, start: Long) {
+            hdrSteps.put(name, hdrSteps.optDouble(name, 0.0) + (System.nanoTime() - start) / 1e9)
+        }
+        fun finishStage(name: String) {
+            val now = System.nanoTime()
+            timings.put(name, (now - stageStart) / 1e9)
+            stageStart = now
+        }
         check(OpenCVLoader.initLocal()) {
             "The on-device image engine could not load. Reinstall the APK for this phone."
         }
@@ -189,6 +173,7 @@ class HdrPipeline(
         progress("Checking saved exposures", .01)
         checkCancelled()
         val curve = response()
+        finishStage("calibration")
         val responseHash =
             MessageDigest.getInstance("SHA-256")
                 .digest(curve.joinToString().toByteArray())
@@ -200,10 +185,10 @@ class HdrPipeline(
                     "Aligning and merging HDR · ${index+1}/${project.captures.size}",
                     .05 + .3 * index / project.captures.size,
                 )
-                val hdr = File(cache, "${capture.targetId}.hdr")
+                val hdr = File(cache, "${capture.targetId}.f32")
                 val preview = File(cache, "${capture.targetId}.jpg")
                 val stamp = File(cache, "${capture.targetId}.stamp")
-                val key = "v2-$maxEdge-$responseHash-${capture.exposures}"
+                val key = "v8-$maxEdge-$responseHash-${capture.exposures}"
                 val metadata = runCatching { JSONObject(stamp.readText()) }.getOrNull()
                 if (hdr.isFile && preview.isFile && metadata?.optString("key") == key) {
                     val savedWarnings = metadata.getJSONArray("warnings")
@@ -214,7 +199,10 @@ class HdrPipeline(
                     return@mapIndexed Prepared(capture, lens, hdr, preview)
                 }
                 val warningStart = warnings.size
+                var substage = System.nanoTime()
                 val raw = load(capture)
+                recordHdr("decode", substage)
+                substage = System.nanoTime()
                 val aligned =
                     try {
                         align(raw)
@@ -222,17 +210,17 @@ class HdrPipeline(
                         raw.forEach { it.release() }
                         throw e
                     }
+                recordHdr("align", substage)
+                substage = System.nanoTime()
                 try {
-                    val bytes =
-                        aligned.map { m ->
-                            ByteArray((m.total() * m.channels()).toInt()).also { m.get(0, 0, it) }
-                        }
                     val result =
-                        Radiance.merge(
-                            bytes,
+                        NativeRadiance.merge(
+                            aligned,
                             capture.exposures.map { it.seconds }.toDoubleArray(),
                             curve,
                         )
+                    recordHdr("merge", substage)
+                    substage = System.nanoTime()
                     val rows = aligned[0].rows()
                     val cols = aligned[0].cols()
                     val pixels = rows * cols
@@ -242,13 +230,9 @@ class HdrPipeline(
                     if (result.moving > pixels * .1)
                         warnings +=
                             "Direction ${capture.targetId+1}: movement was detected within the bracket; inspect for ghosting."
-                    val linear = Mat(rows, cols, CvType.CV_32FC3)
-                    linear.put(0, 0, result.rgb)
-                    try {
-                        val temp = File(cache, "${capture.targetId}.tmp.hdr")
-                        check(Imgcodecs.imwrite(temp.path, linear)) {
-                            "Could not checkpoint HDR data."
-                        }
+                    run {
+                        val temp = File(cache, "${capture.targetId}.tmp.f32")
+                        FloatImages.write(temp, cols, rows, result.rgb)
                         check(temp.renameTo(hdr)) { "Could not finish the HDR checkpoint." }
                         check(Imgcodecs.imwrite(preview.path, aligned[aligned.size / 2])) {
                             "Could not save alignment preview."
@@ -261,21 +245,24 @@ class HdrPipeline(
                                 .put("warnings", JSONArray(warnings.drop(warningStart)))
                                 .toString()
                         )
-                    } finally {
-                        linear.release()
                     }
+                    File(cache, "${capture.targetId}.hdr").delete()
+                    recordHdr("checkpoint", substage)
                     Prepared(capture, capture.lens.scaled(cols, rows), hdr, preview)
                 } finally {
                     raw.forEach { it.release() }
                     aligned.forEach { it.release() }
                 }
             }
-        warnings +=
-            Registration.refine(
+        finishStage("hdrMerge")
+        val registration =
+            Registration.analyze(
                 frames,
                 { stage, p -> progress(stage, .35 + .15 * p) },
                 checkCancelled,
             )
+        warnings += registration.warnings
+        finishStage("registration")
         progress("Checking full sphere coverage", .51)
         val seams =
             SphericalBlend.seams(
@@ -283,6 +270,7 @@ class HdrPipeline(
                 { stage, p -> progress(stage, .51 + .09 * p) },
                 checkCancelled,
             )
+        finishStage("seams")
         val missing = seams.labels.count { it < 0 }.toDouble() / seams.labels.size
         if (missing > .002) {
             if (!project.sample) {
@@ -290,7 +278,7 @@ class HdrPipeline(
                     seams.uncovered.mapIndexed { i, v ->
                         val uv = Sphere.uv(v)
                         Target(
-                            project.targets.size + i,
+                            (project.targets.maxOfOrNull { it.id } ?: -1) + 1 + i,
                             (uv.first - .5) * 360,
                             (.5 - uv.second) * 180,
                         )
@@ -307,15 +295,17 @@ class HdrPipeline(
         val tempHdr = File(dir, "environment.partial.hdr")
         val tempJpg = File(dir, "preview.partial.jpg")
         try {
-            SphericalBlend.render(
-                frames,
-                seams,
-                project.quality.outputWidth,
-                tempHdr,
-                tempJpg,
-                { stage, p -> progress(stage, .61 + .36 * p) },
-                checkCancelled,
-            )
+            val render =
+                SphericalBlend.render(
+                    frames,
+                    seams,
+                    project.quality.outputWidth,
+                    tempHdr,
+                    tempJpg,
+                    { stage, p -> progress(stage, .61 + .36 * p) },
+                    checkCancelled,
+                )
+            finishStage("render")
             progress("Writing export metadata", .98)
             checkCancelled()
             addPhotoSphereMetadata(
@@ -332,7 +322,28 @@ class HdrPipeline(
             File(dir, "report.json")
                 .writeText(
                     JSONObject()
-                        .put("pipelineVersion", 1)
+                        .put("pipelineVersion", 2)
+                        .put("stageSeconds", timings)
+                        .put("hdrStepSeconds", hdrSteps)
+                        .put(
+                            "render",
+                            JSONObject()
+                                .put("hdrDecodes", render.decodes)
+                                .put("cachePeakBytes", render.cachePeakBytes),
+                        )
+                        .put(
+                            "registration",
+                            JSONObject()
+                                .put("focalScale", registration.focalScale)
+                                .put("localMatches", registration.localMatches)
+                                .put("pairs", registration.pairs)
+                                .put("matches", registration.observations)
+                                .put("isolatedDirections", registration.isolated)
+                                .put("medianBeforeDegrees", registration.beforeDegrees)
+                                .put("medianAfterDegrees", registration.afterDegrees)
+                                .put("p90AfterDegrees", registration.p90Degrees)
+                                .put("localMeshes", registration.meshes),
+                        )
                         .put("width", project.quality.outputWidth)
                         .put("height", project.quality.outputWidth / 2)
                         .put(
@@ -340,7 +351,7 @@ class HdrPipeline(
                             "relative linear RGB, D65; JPEG camera-response estimate, not absolute photometry",
                         )
                         .put("coverage", 1 - missing)
-                        .put("durationSeconds", (System.currentTimeMillis() - started) / 1000.0)
+                        .put("durationSeconds", (System.nanoTime() - started) / 1e9)
                         .put("nativeHeapBytesAtFinish", Debug.getNativeHeapAllocatedSize())
                         .put("warnings", JSONArray(warnings))
                         .put(

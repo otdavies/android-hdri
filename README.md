@@ -51,3 +51,5 @@ Windows: use `gradlew.bat` with the same arguments. Local release builds use the
 The first commit copied the Android workflow from `otdavies/route`. Routine main pushes run unit tests and lint. A commit containing `[release]`, or **Actions → Android → Run workflow → release**, builds paired APKs once, verifies those exact candidates in an emulator, then publishes the same application APK. See [CI and signing](docs/CI.md).
 
 See [sky capture and fewer stops](docs/SKY-CAPTURE.md), [handheld capture update](docs/CAPTURE-UPDATE.md), [research and design](docs/RESEARCH.md), [architecture](docs/ARCHITECTURE.md), [validation results and screenshots](docs/VALIDATION.md), and [preview notes](docs/PREVIEW.md).
+
+Handheld stitching improvements, private replay instructions and measurements: [stitching update](docs/STITCHING-UPDATE.md).

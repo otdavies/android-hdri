@@ -157,9 +157,9 @@ class PipelineTest {
             )
             assertFalse(File(store.dir(p.id), "environment.hdr").exists())
             assertTrue(
-                File(store.dir(p.id), "processed/${p.captures.first().targetId}.hdr").exists()
+                File(store.dir(p.id), "processed/${p.captures.first().targetId}.f32").exists()
             )
-            val checkpoint = File(store.dir(p.id), "processed/${p.captures.first().targetId}.hdr")
+            val checkpoint = File(store.dir(p.id), "processed/${p.captures.first().targetId}.f32")
             val savedAt = checkpoint.lastModified()
             HdrPipeline(store, store.read(p.id), { _, _ -> }, {}).run()
             assertEquals(

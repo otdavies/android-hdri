@@ -154,7 +154,7 @@ class ProcessingService : Service() {
     private fun report(id: String, stage: String, progress: Double) {
         val now = SystemClock.elapsedRealtime()
         val next = max(mutable.value.progress, progress.coerceIn(0.0, 1.0))
-        if (now - lastReport < 250 && stage == mutable.value.stage && next < 1) return
+        if (now - lastReport < 250 && next < 1) return
         lastReport = now
         mutable.value = ProcessingStatus(id, stage, next, true)
         store.update(id) { it.copy(stage = stage, progress = next) }
