@@ -1,5 +1,7 @@
 # Research and implementation decisions
 
+Latest implementation and release evidence: [sky capture with inertial guidance and fewer stops](SKY-CAPTURE.md).
+
 Research date: 2026-09-06. Goal: a captured, full-sphere radiance environment processed on a Pixel 8, with observable progress and retained source data. Papers below inform the design; listing a method does not mean this app implements that entire paper.
 
 ## HDR reconstruction is distinct from display HDR

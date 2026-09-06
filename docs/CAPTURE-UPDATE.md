@@ -1,5 +1,7 @@
 # Handheld capture and guidance update
 
+Latest implementation and release evidence: [sky capture with inertial guidance and fewer stops](SKY-CAPTURE.md).
+
 The Pixel 8 report identified an unusably strict automatic shutter. Two separate checks contributed: differentiating successive AR poses amplified small tracking changes, and integrating the magnitude of every gyro sample accumulated ordinary tremor and included JPEG saving time.
 
 ## Automatic capture remains the default

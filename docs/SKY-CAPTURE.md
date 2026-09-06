@@ -30,7 +30,17 @@ Existing unfinished projects get the new plan on entering capture. Saved photo f
 
 ## Verification
 
-Local regression checks cover sky-to-horizon return, automatic capture at the zenith, sensor freshness, signed quaternion interpolation, camera/display axes, full-sphere coverage, off-center image crops, metadata compatibility and migration without losing original photographs. The release workflow additionally installs the exact candidate APK and exercises the native HDR/stitch/export pipeline, smooth-field seam checks, recovery and production Compose HUD. Release evidence is recorded below after CI completes.
+Local regression checks cover sky-to-horizon return, automatic capture at the zenith, sensor freshness, signed quaternion interpolation, camera/display axes, full-sphere coverage, off-center image crops, metadata compatibility and migration without losing original photographs. The release workflow additionally installs the exact candidate APK and exercises the native HDR/stitch/export pipeline, smooth-field seam checks, recovery and production Compose HUD. [Preview 8](https://github.com/otdavies/android-hdri/releases/tag/v0.1.0-preview.8), source `7117bc0`, passed [GitHub Actions run 34014604428](https://github.com/otdavies/android-hdri/actions/runs/34014604428): build, installed-APK verification and publication. All 23 JVM tests and release lint passed; all 8 instrumentation tests passed in 22.117 seconds. The published APK is 123,691,153 bytes with SHA-256 `cb1657f6bb726197bed6da464c136d6c2673913953c8ce2d78f654619109b707`.
+
+The native synthetic pipeline produced 100% coverage in 4.987 seconds, with median relative radiance error 0.12162 after global scaling. The independent smooth-field test measured maximum adjacent-row relative error change 0.002313, longitude difference 0.008197, and row bias 0.01317, all within the existing gates. These are emulator/synthetic measurements, not physical Pixel 8 performance or calibration results. See [machine-readable evidence](evidence/sky-capture.json).
+
+The screenshots below show the production Compose HUD with injected pose state, not a live physical camera.
+
+![Gyro guidance and 41-stop counter](evidence/sky-guidance.png)
+
+![Automatic shutter remains primary](evidence/sky-aligned.png)
+
+![Synthetic HDR sphere from the smaller plan](evidence/sample-sky.jpg)
 
 ## Primary references
 

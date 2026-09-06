@@ -1,0 +1,86 @@
+{
+  "sourceCommit": "7117bc0b1296b0782df18a5eb48956ccb44ef8fe",
+  "release": "v0.1.0-preview.8",
+  "apkSha256": "cb1657f6bb726197bed6da464c136d6c2673913953c8ce2d78f654619109b707",
+  "apkBytes": 123691153,
+  "runId": 34014604428,
+  "runUrl": "https://github.com/otdavies/android-hdri/actions/runs/34014604428",
+  "jobs": {
+    "build": 101436111682,
+    "device": 101436368050,
+    "publish": 101436577483
+  },
+  "localUnitSuites": [
+    {
+      "suite": "app.hdri.GeometryTest",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "suite": "app.hdri.CoveragePlannerTest",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "suite": "app.hdri.RadianceTest",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "suite": "app.hdri.InertialCaptureTest",
+      "tests": 4,
+      "failures": 0
+    },
+    {
+      "suite": "app.hdri.CaptureBehaviorTest",
+      "tests": 7,
+      "failures": 0
+    }
+  ],
+  "releaseLint": "passed",
+  "installedApkTests": 8,
+  "instrumentationSeconds": 22.117,
+  "deviceArtifact": {
+    "id": 9983555513,
+    "sha256": "c14f90480a3a4cf725220e824b2f140b87b643b0e9a083a94efa15c0b0737f96"
+  },
+  "samplePipeline": {
+    "durationSeconds": 4.987,
+    "coverage": 1,
+    "medianRelativeRadianceError": 0.12161802083295693,
+    "sessionId": "ad955906-75f5-423c-985a-3766af6d14f0"
+  },
+  "smoothField": {
+    "maxAdjacentRowRelativeErrorChange": 0.0023130834809707984,
+    "maxLongitudeRelativeDifference": 0.00819672131147541,
+    "maxRowRelativeBias": 0.01316524380164326
+  },
+  "coverageCases": [
+    {
+      "portraitFov": [
+        54,
+        68
+      ],
+      "before": 74,
+      "after": 41
+    },
+    {
+      "portraitFov": [
+        60,
+        75
+      ],
+      "before": 50,
+      "after": 32
+    },
+    {
+      "portraitFov": [
+        84,
+        100
+      ],
+      "before": 37,
+      "after": 20
+    }
+  ],
+  "physicalPixel8Validation": "pending",
+  "hudScreenshots": "Production Compose HUD with injected state, not a live physical camera"
+}
