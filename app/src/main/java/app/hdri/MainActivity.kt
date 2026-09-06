@@ -7,6 +7,7 @@ import android.graphics.BitmapFactory
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
+import android.text.format.Formatter
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -177,6 +178,7 @@ private fun SphereApp(vm: AppViewModel) {
                         project,
                         processing.running && processing.id == project.id,
                         vm,
+                        app.storage[project.id],
                         { vm.navigate(Screen.HOME) },
                         { startCapture(true) },
                         { process(project.id) },
@@ -199,9 +201,9 @@ private fun SphereApp(vm: AppViewModel) {
     if (app.error != null)
         AlertDialog(
             onDismissRequest = vm::clearError,
-            title = { Text("A little attention needed") },
+            title = { Text("Could not complete operation") },
             text = { Text(app.error!!) },
-            confirmButton = { TextButton(vm::clearError) { Text("Got it") } },
+            confirmButton = { TextButton(vm::clearError) { Text("OK") } },
         )
     if (app.operation != null)
         AlertDialog(
@@ -216,7 +218,9 @@ private fun SphereApp(vm: AppViewModel) {
                     Text("${(app.operationProgress*100).roundToInt()}%")
                 }
             },
-            confirmButton = { TextButton(vm::cancelExport) { Text("Cancel") } },
+            confirmButton = {
+                if (app.operationCancellable) TextButton(vm::cancelExport) { Text("Cancel") }
+            },
         )
 }
 
@@ -266,16 +270,15 @@ private fun Home(
         }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Eyebrow("LIGHT, TAKEN ON LOCATION")
                 Text(
-                    "Bring the\nlight back.",
-                    fontSize = 42.sp,
-                    lineHeight = 46.sp,
+                    "Capture HDR\nenvironments.",
+                    fontSize = 36.sp,
+                    lineHeight = 40.sp,
                     fontWeight = FontWeight.Medium,
                     letterSpacing = (-1.5).sp,
                 )
                 Text(
-                    "Capture the whole light of a place. Build an HDR environment, check its reflections, and take it into your next shot.",
+                    "Guided photosphere capture, on-device stitching, and HDR lighting previews.",
                     color = Muted,
                     fontSize = 16.sp,
                     lineHeight = 24.sp,
@@ -284,7 +287,7 @@ private fun Home(
         }
         item {
             Box(
-                Modifier.fillMaxWidth().height(258.dp).background(Panel, RoundedCornerShape(28.dp))
+                Modifier.fillMaxWidth().height(190.dp).background(Panel, RoundedCornerShape(28.dp))
             ) {
                 SphereArt(Modifier.fillMaxSize())
                 Row(
@@ -293,7 +296,7 @@ private fun Home(
                 ) {
                     Eyebrow("360° × 180°")
                     Text(
-                        "CAPTURE · CHECK · CARRY",
+                        "LOCAL PROCESSING",
                         color = Muted,
                         fontSize = 10.sp,
                         letterSpacing = 1.5.sp,
@@ -326,19 +329,29 @@ private fun Home(
         if (app.projects.isEmpty())
             item {
                 Text(
-                    "Your first light study starts here.\nNo account. No uploads.",
+                    "No captures yet. Tap New photosphere to start.",
                     color = Muted,
                     fontSize = 14.sp,
                     lineHeight = 22.sp,
                     modifier = Modifier.padding(bottom = 24.dp),
                 )
             }
-        items(app.projects, key = { it.id }) { p -> CaptureRow(p) { open(p.id) } }
+        if (app.projects.isNotEmpty())
+            item {
+                Text(
+                    "${formatBytes(app.storage.values.sumOf { it.total })} used by captures",
+                    color = Muted,
+                    fontSize = 13.sp,
+                )
+            }
+        items(app.projects, key = { it.id }) { p ->
+            CaptureRow(p, app.storage[p.id]) { open(p.id) }
+        }
     }
 }
 
 @Composable
-private fun CaptureRow(p: Project, open: () -> Unit) {
+private fun CaptureRow(p: Project, storage: CaptureStorage?, open: () -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
@@ -364,6 +377,9 @@ private fun CaptureRow(p: Project, open: () -> Unit) {
                 fontSize = 12.sp,
                 maxLines = 2,
             )
+            storage?.let {
+                Text("${formatBytes(it.total)} on device", color = Muted, fontSize = 12.sp)
+            }
             if (p.state == "processing")
                 LinearProgressIndicator(
                     progress = { p.progress.toFloat() },
@@ -395,7 +411,6 @@ private fun Setup(
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Header("New photosphere", back)
-        Eyebrow("A LITTLE STILLNESS GOES A LONG WAY")
         Text(
             "Keep the lens\nin one place.",
             fontSize = 36.sp,
@@ -407,11 +422,11 @@ private fun Setup(
             "Wipe the main lens first. Rotate around that lens and keep nearby objects at least a metre away. Smudges can turn practical lights into broad glare.",
         )
         InfoCard(
-            "02  Meet each dot",
+            "02  Align with each dot",
             "Hold the phone upright, then follow the dots. Gyro guidance works on blank sky. Each stop automatically captures an HDR bracket.",
         )
         InfoCard(
-            "03  Let the sphere develop",
+            "03  Process and export",
             "Stitching stays on your phone. Every stage has visible progress, and you can pause it and return later.",
         )
         Text("Capture quality", fontWeight = FontWeight.Medium)
@@ -427,7 +442,7 @@ private fun Setup(
                 RadioButton(q == quality, { select(q) })
                 Column(Modifier.padding(start = 8.dp)) {
                     Text(
-                        if (q == Quality.DETAIL) "Detailed environment" else "Quick light study",
+                        if (q == Quality.DETAIL) "Detailed environment" else "Quick capture",
                         fontWeight = FontWeight.Medium,
                     )
                     Text(q.label, color = Muted, fontSize = 13.sp)
@@ -435,7 +450,7 @@ private fun Setup(
             }
         }
         Text(
-            "Use a still scene and leave at least 1 GB free. HDR exports contain relative lighting values. Camera preview needs Google Play Services for AR installed. Gyro guidance and stitching work offline.",
+            "Leave at least 1 GB free for capture and processing. Temporary processing files are cleared when finished. You can remove source photos later to keep only the HDRI. HDR exports contain relative lighting values. Camera preview needs Google Play Services for AR installed. Gyro guidance and stitching work offline.",
             color = Muted,
             fontSize = 13.sp,
             lineHeight = 20.sp,
@@ -539,6 +554,7 @@ private fun Details(
     p: Project,
     running: Boolean,
     vm: AppViewModel,
+    storage: CaptureStorage?,
     back: () -> Unit,
     resume: () -> Unit,
     process: () -> Unit,
@@ -547,9 +563,10 @@ private fun Details(
     val context = LocalContext.current
     var deleting by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
+    var removingSources by remember { mutableStateOf(false) }
     var name by remember(p.name) { mutableStateOf(p.name) }
     val dir = vm.store.dir(p.id)
-    val ready = p.state in listOf("ready", "review")
+    val ready = p.state in listOf("ready", "review") && !running
     Column(
         Modifier.fillMaxSize()
             .safeDrawingPadding()
@@ -558,7 +575,7 @@ private fun Details(
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
         Header(
-            "Light study",
+            "Capture",
             back,
             trailing = {
                 IconButton({ renaming = true }) { Icon(Icons.Outlined.Edit, "Rename capture") }
@@ -572,6 +589,7 @@ private fun Details(
             color = Muted,
             fontSize = 13.sp,
         )
+        storage?.let { Text("${formatBytes(it.total)} on device", color = Muted, fontSize = 13.sp) }
         if (ready) {
             Box(
                 Modifier.fillMaxWidth().height(210.dp).clip(RoundedCornerShape(24.dp)).clickable {
@@ -580,12 +598,20 @@ private fun Details(
             ) {
                 Photo(File(dir, "preview.jpg"), Modifier.fillMaxSize())
                 Text(
-                    "Check the light ↗",
+                    "View environment ↗",
                     Modifier.align(Alignment.BottomEnd)
                         .padding(12.dp)
                         .background(Ink.copy(alpha = .85f), RoundedCornerShape(20.dp))
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                     color = Lime,
+                    fontSize = 13.sp,
+                )
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                PrimaryAction("Lighting spheres", { vm.navigate(Screen.VIEWER) })
+                Text(
+                    "Chrome + 18% grey · rotate and adjust exposure",
+                    color = Muted,
                     fontSize = 13.sp,
                 )
             }
@@ -627,14 +653,23 @@ private fun Details(
                     TextButton({ vm.reviewed(p.id) }) { Text("Mark as reviewed") }
                 }
             }
+            if (!p.sourcesRemoved)
+                OutlinedButton(
+                    process,
+                    Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Text("Rebuild from saved photos")
+                }
+            Text("Export", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+            PrimaryAction("Save OpenEXR (.exr)", { export("environment.exr") })
+            Text("32-bit float RGB · lossless ZIP compression", color = Muted, fontSize = 13.sp)
             OutlinedButton(
-                process,
+                { export("environment.hdr") },
                 Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                shape = RoundedCornerShape(18.dp),
             ) {
-                Text("Rebuild from saved photos")
+                Text("Save Radiance (.hdr)")
             }
-            PrimaryAction("Save HDR environment", { export("environment.hdr") })
             OutlinedButton(
                 { export("preview.jpg") },
                 Modifier.fillMaxWidth().heightIn(min = 52.dp),
@@ -665,14 +700,14 @@ private fun Details(
                 Text("Share HDR")
             }
             Text(
-                "The .hdr file holds relative scene radiance for lighting. The JPEG is a tone-mapped preview with photosphere metadata. Keep the original exposures for future processing.",
+                "EXR and HDR preserve the saved relative lighting values. The JPEG is a tone-mapped photosphere. EXR is created only when exporting; an extra copy is not kept in this capture.",
                 color = Muted,
                 fontSize = 13.sp,
                 lineHeight = 20.sp,
             )
         } else if (running || p.state in listOf("processing", "paused", "failed")) {
             SphereArt(Modifier.fillMaxWidth().height(220.dp), p.progress.toFloat())
-            Eyebrow(if (running) "DEVELOPING ON YOUR PHONE" else "YOUR PHOTOS ARE SAVED")
+            Eyebrow(if (running) "PROCESSING ON DEVICE" else "PROCESSING PAUSED")
             Text(p.stage, fontSize = 22.sp, lineHeight = 28.sp)
             LinearProgressIndicator(
                 progress = { p.progress.toFloat() },
@@ -735,7 +770,14 @@ private fun Details(
             if (p.targets.isNotEmpty() && p.captures.size >= p.targets.size)
                 OutlinedButton(process, Modifier.fillMaxWidth()) { Text("Build HDR sphere") }
         }
-        if (p.captures.isNotEmpty() && !running)
+        StorageCard(
+            p,
+            storage,
+            running,
+            { vm.clearStorage(p.id, false) },
+            { removingSources = true },
+        )
+        if (p.captures.isNotEmpty() && !p.sourcesRemoved && !running)
             TextButton({ export("capture.zip") }, Modifier.fillMaxWidth()) {
                 Icon(Icons.Outlined.FolderOpen, null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
@@ -767,10 +809,29 @@ private fun Details(
             },
             dismissButton = { TextButton({ deleting = false }) { Text("Keep") } },
         )
+    if (removingSources)
+        AlertDialog(
+            onDismissRequest = { removingSources = false },
+            title = { Text("Remove source photos?") },
+            text = {
+                Text(
+                    "Free ${formatBytes((storage?.sources ?: 0L) + (storage?.processing ?: 0L))} by removing original photos and processing files. Keep the finished HDR, JPEG, lighting viewer and EXR export. This capture can no longer be rebuilt. Export the original capture bundle first if you want a backup."
+                )
+            },
+            confirmButton = {
+                TextButton({
+                    removingSources = false
+                    vm.clearStorage(p.id, true)
+                }) {
+                    Text("Remove photos")
+                }
+            },
+            dismissButton = { TextButton({ removingSources = false }) { Text("Cancel") } },
+        )
     if (renaming)
         AlertDialog(
             onDismissRequest = { renaming = false },
-            title = { Text("Name your light study") },
+            title = { Text("Rename capture") },
             text = {
                 OutlinedTextField(name, { name = it }, singleLine = true, label = { Text("Name") })
             },
@@ -804,4 +865,67 @@ private fun Photo(file: File, modifier: Modifier = Modifier) {
         Box(modifier.background(Panel), contentAlignment = Alignment.Center) {
             CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
         }
+}
+
+@Composable
+private fun formatBytes(bytes: Long): String = Formatter.formatFileSize(LocalContext.current, bytes)
+
+@Composable
+private fun StorageCard(
+    p: Project,
+    usage: CaptureStorage?,
+    running: Boolean,
+    clearCache: () -> Unit,
+    clearSources: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().background(Panel, RoundedCornerShape(20.dp)).padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("Storage", fontSize = 20.sp, fontWeight = FontWeight.Medium)
+        if (usage == null) {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Measuring storage…", color = Muted)
+        } else {
+            listOf(
+                    "Source photos" to usage.sources,
+                    "Processing files" to usage.processing,
+                    "Exports and metadata" to usage.other,
+                    "Total on device" to usage.total,
+                )
+                .forEach { (label, bytes) ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(label, color = Muted, fontSize = 14.sp)
+                        Text(formatBytes(bytes), fontSize = 14.sp)
+                    }
+                }
+            if (p.sourcesRemoved)
+                Text(
+                    "Source photos removed. Viewing and exporting remain available; rebuilding is unavailable.",
+                    color = Muted,
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp,
+                )
+            Text(
+                if (p.state in listOf("paused", "failed"))
+                    "Processing files speed up resume. Clearing them restarts processing from the saved photos."
+                else
+                    "Temporary processing files are cleared after each successful build. Original photos stay until you remove them.",
+                color = Muted,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+            )
+            if (!running && usage.processing > 0 && p.state != "capture")
+                OutlinedButton(clearCache, Modifier.fillMaxWidth()) {
+                    Text("Clear processing files")
+                }
+            if (!running && p.state in listOf("ready", "review") && usage.sources > 0)
+                OutlinedButton(clearSources, Modifier.fillMaxWidth()) {
+                    Text(
+                        if (p.sourcesRemoved) "Remove remaining source photos"
+                        else "Remove source photos"
+                    )
+                }
+        }
+    }
 }

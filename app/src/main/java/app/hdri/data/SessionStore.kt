@@ -5,7 +5,10 @@ import android.util.AtomicFile
 import app.hdri.core.*
 import app.hdri.core.Target
 import java.io.File
+import java.nio.file.Files
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.locks.ReentrantLock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -43,7 +46,13 @@ data class Project(
     val error: String? = null,
     val sample: Boolean = false,
     val coverageVersion: Int = 0,
+    val sourcesRemoved: Boolean = false,
 )
+
+data class CaptureStorage(val sources: Long, val processing: Long, val other: Long) {
+    val total
+        get() = sources + processing + other
+}
 
 /**
  * Every update re-reads the latest manifest under one process-wide lock. Completed brackets are
@@ -63,7 +72,7 @@ class SessionStore(context: Context) {
                 Project(
                     UUID.randomUUID().toString(),
                     System.currentTimeMillis(),
-                    if (sample) "Studio light · sample" else "Untitled sphere",
+                    if (sample) "Sample photosphere" else "Untitled sphere",
                     quality,
                     sample = sample,
                 )
@@ -107,7 +116,141 @@ class SessionStore(context: Context) {
             }
         }
 
-    fun delete(id: String) = synchronized(lock) { dir(id).deleteRecursively() }
+    // File operations use a separate, reentrant lease. A manifest lock alone cannot
+    // protect a multi-minute build or export from cleanup on another thread.
+    fun <T> withFiles(id: String, action: () -> T): T {
+        val lease = fileLocks.getOrPut(id) { ReentrantLock() }
+        check(lease.tryLock()) {
+            "This capture is in use. Wait for its current operation to finish."
+        }
+        try {
+            return action()
+        } finally {
+            lease.unlock()
+        }
+    }
+
+    fun delete(id: String) =
+        withFiles(id) {
+            check(read(id).state != "processing") {
+                "Pause processing before deleting this capture."
+            }
+            check(dir(id).deleteRecursively()) {
+                "Some files could not be deleted. Retry deleting this capture."
+            }
+        }
+
+    private fun sourceFiles(p: Project): List<File> =
+        p.captures
+            .flatMap { it.exposures }
+            .map {
+                // Only declared, ordinary JPEG basenames may be removed. Never follow a
+                // malformed manifest into an export, another capture, or a symlink target.
+                require(
+                    it.file.matches(Regex("[A-Za-z0-9_-]+\\.jpg")) && it.file != "preview.jpg"
+                ) {
+                    "Invalid source photo filename. No source photos were removed."
+                }
+                File(dir(p.id), it.file).also { f ->
+                    require(!Files.isSymbolicLink(f.toPath())) { "Invalid source photo path." }
+                }
+            }
+            .distinct()
+
+    fun requireSources(id: String) {
+        val p = read(id)
+        check(!p.sourcesRemoved) {
+            "Source photos were removed. The finished HDR and JPEG remain available, but this capture cannot be rebuilt."
+        }
+        check(sourceFiles(p).all { it.isFile && it.length() > 0 }) {
+            "Some source photos are missing. This capture cannot be rebuilt or exported as an original bundle."
+        }
+    }
+
+    fun storage(p: Project): CaptureStorage {
+        val sourceNames = p.captures.flatMap { it.exposures }.map { it.file }.toSet()
+        val directory = dir(p.id)
+        var sources = 0L
+        var processing = 0L
+        var other = 0L
+        directory
+            .walkTopDown()
+            .onEnter { !Files.isSymbolicLink(it.toPath()) }
+            .forEach { f ->
+                if (f.isFile && !Files.isSymbolicLink(f.toPath())) {
+                    val name = f.relativeTo(directory).invariantSeparatorsPath
+                    when {
+                        name in sourceNames -> sources += f.length()
+                        name.startsWith("processed/") -> processing += f.length()
+                        else -> other += f.length()
+                    }
+                }
+            }
+        return CaptureStorage(sources, processing, other)
+    }
+
+    fun clearProcessingFiles(
+        id: String,
+        progress: (Float) -> Unit = {},
+        checkCancelled: () -> Unit = {},
+    ) =
+        withFiles(id) {
+            check(read(id).state in listOf("ready", "review", "paused", "failed")) {
+                "Finish or pause processing before clearing its files."
+            }
+            val cache = File(dir(id), "processed")
+            require(!Files.isSymbolicLink(cache.toPath())) { "Invalid processing directory." }
+            val files =
+                cache
+                    .walkTopDown()
+                    .onEnter { !Files.isSymbolicLink(it.toPath()) }
+                    .filter { it.isFile }
+                    .toList()
+            removeFiles(files, progress, checkCancelled)
+            cache
+                .walkBottomUp()
+                .onEnter { !Files.isSymbolicLink(it.toPath()) }
+                .filter { it.isDirectory && !Files.isSymbolicLink(it.toPath()) }
+                .forEach { it.delete() }
+        }
+
+    fun removeSources(id: String, progress: (Float) -> Unit = {}, checkCancelled: () -> Unit = {}) =
+        withFiles(id) {
+            val p = read(id)
+            check(p.state in listOf("ready", "review")) {
+                "Finish processing before removing source photos."
+            }
+            check(
+                listOf("environment.hdr", "preview.jpg").all {
+                    File(dir(id), it).let { f -> f.isFile && f.length() > 0 }
+                }
+            ) {
+                "Keep source photos until both finished exports are saved successfully."
+            }
+            val files =
+                sourceFiles(p) // Validate every name BEFORE persisting intent or deleting anything.
+            checkCancelled()
+            // Commit intent first: a crash or cancellation can leave photos behind, but
+            // must never make an incomplete source set appear safe to rebuild/export.
+            update(id) { it.copy(sourcesRemoved = true) }
+            removeFiles(files, progress, checkCancelled)
+        }
+
+    private fun removeFiles(
+        files: List<File>,
+        progress: (Float) -> Unit,
+        checkCancelled: () -> Unit,
+    ) {
+        progress(0f)
+        files.forEachIndexed { index, f ->
+            checkCancelled()
+            check(!f.exists() || (f.isFile && f.delete())) {
+                "Could not remove ${f.name}. Retry to remove the remaining files."
+            }
+            progress((index + 1f) / files.size)
+        }
+        progress(1f)
+    }
 
     fun checkSpace(id: String, bytes: Long) {
         check(dir(id).usableSpace > bytes) {
@@ -117,6 +260,7 @@ class SessionStore(context: Context) {
 
     companion object {
         private val lock = Any()
+        private val fileLocks = ConcurrentHashMap<String, ReentrantLock>()
 
         private fun arr(values: List<*>) = JSONArray(values)
 
@@ -144,6 +288,7 @@ class SessionStore(context: Context) {
                 .put("progress", p.progress)
                 .put("sample", p.sample)
                 .put("coverageVersion", p.coverageVersion)
+                .put("sourcesRemoved", p.sourcesRemoved)
                 .put("error", p.error ?: JSONObject.NULL)
                 .put("warnings", arr(p.warnings))
                 .put(
@@ -242,6 +387,7 @@ class SessionStore(context: Context) {
                 if (j.isNull("error")) null else j.getString("error"),
                 j.optBoolean("sample"),
                 j.optInt("coverageVersion", 0),
+                j.optBoolean("sourcesRemoved", false),
             )
         }
     }

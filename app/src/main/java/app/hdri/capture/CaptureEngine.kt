@@ -316,7 +316,7 @@ class CaptureEngine(
                         !focusReady && angle <= CaptureTolerance.AIM_EXIT ->
                             "Waiting for focus to settle"
                         gate.reason == HoldReason.SETTLING || gate.reason == HoldReason.READY ->
-                            "Nice aim · capturing automatically"
+                            "Aligned · capturing automatically"
                         else -> guide.instruction
                     }
                 emit(

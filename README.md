@@ -1,7 +1,5 @@
 # sphere · Android HDRI
 
-**Bring the light back.**
-
 A native, local-first Android app for guided spherical HDR photography. Built for testing on **Google Pixel 8**, with Kotlin, Jetpack Compose, ARCore, Camera2 and OpenCV. No backend, account, analytics or app Internet permission.
 
 ## Install
@@ -16,11 +14,11 @@ Google Play Services for AR is currently used for camera preview and lens intrin
 2. Stay at one physical point. Pivot around the main camera lens, keeping objects at least a metre away where possible.
 3. Follow the directional glow and arrows to bring a guide dot into the ring. Small hand wobbles are okay: the ring fills and captures a bracket automatically. Turn/tilt indicators and optional leveling help with framing; **Capture now** is a fallback when aligned.
 4. Complete the sky, horizon and ground. Processing starts automatically with visible stages and a foreground notification.
-5. Tap **Check the light** to inspect chrome and 18% grey spheres under the captured HDRI. Rotate the light, adjust exposure or explore the HDR panorama, then save the Radiance `.hdr` or photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
+5. Tap **Lighting spheres** to inspect chrome and 18% grey spheres under the captured HDRI. Rotate the light, adjust exposure or explore the HDR panorama, then save the Radiance `.hdr` or photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
 
 **Explore a sample capture** creates an analytic HDR light stage on the phone and runs it through the same image pipeline. It is useful for testing processing and export before a real capture.
 
-Saved capture sessions survive app restarts. Returning to capture asks you to match a reference photograph to re-establish orientation at the same physical location. Interrupted processing restarts from valid HDR checkpoints. Original exposure JPEGs and metadata can be exported as a ZIP.
+Saved capture sessions survive app restarts. Returning to capture asks you to match a reference photograph to re-establish orientation at the same physical location. Interrupted processing restarts from valid HDR checkpoints. Original exposure JPEGs and metadata can be exported as a ZIP. Storage shows each capture’s size and a source / processing / export breakdown. Successful builds automatically clear intermediate float images. Removing source photos is optional, requires confirmation and keeps finished HDR/JPEG files and EXR export, but disables rebuilding. OpenEXR export uses lossless ZIP compression and 32-bit linear RGB; temporary export files are removed after saving or cancellation.
 
 ## What this preview implements
 

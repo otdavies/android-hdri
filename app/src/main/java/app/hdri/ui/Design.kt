@@ -15,10 +15,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.*
 import kotlin.math.*
 
-val Ink = Color(0xFF151719)
-val Panel = Color(0xFF232629)
-val Lime = Color(0xFFF2CB92)
-val Muted = Color(0xFFB5B9BD)
+val Ink = Color(0xFF101411)
+val Panel = Color(0xFF1C231D)
+val Lime = Color(0xFFD8F5A2)
+val Muted = Color(0xFFA9B4A6)
 val Amber = Color(0xFFFFCA8A)
 
 @Composable
@@ -29,16 +29,16 @@ fun SphereTheme(content: @Composable () -> Unit) {
                 primary = Lime,
                 onPrimary = Ink,
                 secondary = Lime,
-                secondaryContainer = Color(0xFF40382D),
+                secondaryContainer = Color(0xFF303D2A),
                 onSecondaryContainer = Lime,
-                primaryContainer = Color(0xFF40382D),
+                primaryContainer = Color(0xFF303D2A),
                 onPrimaryContainer = Lime,
                 background = Ink,
                 surface = Ink,
                 surfaceVariant = Panel,
-                onSurface = Color(0xFFF3F1ED),
+                onSurface = Color(0xFFF0F3EA),
                 onSurfaceVariant = Muted,
-                outline = Color(0xFF4B4F53),
+                outline = Color(0xFF424D40),
                 error = Color(0xFFFFB4AB),
             ),
         content = {

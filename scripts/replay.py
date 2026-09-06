@@ -68,7 +68,7 @@ if args.ref:
 else:
     paths = [str(p.relative_to(ROOT)) for p in (ROOT / prefix).rglob('*.kt')]
 paths = [p for p in paths if (p.startswith(prefix+'processing/') and pathlib.Path(p).name not in ['ProcessingService.kt','SampleCapture.kt'])
-         or p in [prefix+'core/Geometry.kt',prefix+'core/Radiance.kt',prefix+'data/SessionStore.kt']]
+         or p in [prefix+'core/Geometry.kt',prefix+'core/Radiance.kt',prefix+'core/ExrWriter.kt',prefix+'data/SessionStore.kt']]
 sources = []
 for path in paths:
     if args.ref:

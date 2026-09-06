@@ -73,7 +73,7 @@ internal fun ViewerScreen(file: File, name: String, back: () -> Unit) {
         ) {
             IconButton(back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back") }
             Column(Modifier.weight(1f)) {
-                Text("Light check")
+                Text("Lighting preview")
                 Text(name, color = Muted, fontSize = 12.sp, maxLines = 1)
             }
             IconButton({

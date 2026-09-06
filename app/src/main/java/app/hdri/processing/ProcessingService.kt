@@ -57,62 +57,74 @@ class ProcessingService : Service() {
             scope.launch {
                 val context = currentCoroutineContext()
                 val power = getSystemService(PowerManager::class.java)
+                var started = false
                 try {
-                    wakeLock =
-                        power
-                            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Sphere:processing")
-                            .apply { acquire(30 * 60 * 1000L) }
-                    var p =
-                        store.update(id) {
-                            it.copy(
-                                state = "processing",
-                                stage = "Checking saved photos",
-                                error = null,
-                                progress = 0.0,
-                            )
-                        }
-                    var thermalSince = 0L
-                    val check = {
-                        context.ensureActive()
-                        while (power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE) {
-                            context.ensureActive()
-                            if (thermalSince == 0L) thermalSince = SystemClock.elapsedRealtime()
-                            report(
-                                id,
-                                "Cooling the phone · processing will resume",
-                                mutable.value.progress,
-                            )
-                            check(SystemClock.elapsedRealtime() - thermalSince < 10 * 60 * 1000) {
-                                "The phone needs more time to cool. Retry processing later; captures are saved."
+                    store.withFiles(id) {
+                        store.requireSources(id)
+                        started = true
+                        wakeLock =
+                            power
+                                .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Sphere:processing")
+                                .apply { acquire(30 * 60 * 1000L) }
+                        var p =
+                            store.update(id) {
+                                it.copy(
+                                    state = "processing",
+                                    stage = "Checking saved photos",
+                                    error = null,
+                                    progress = 0.0,
+                                )
                             }
-                            Thread.sleep(500)
+                        var thermalSince = 0L
+                        val check = {
+                            context.ensureActive()
+                            while (
+                                power.currentThermalStatus >= PowerManager.THERMAL_STATUS_SEVERE
+                            ) {
+                                context.ensureActive()
+                                if (thermalSince == 0L) thermalSince = SystemClock.elapsedRealtime()
+                                report(
+                                    id,
+                                    "Cooling the phone · processing will resume",
+                                    mutable.value.progress,
+                                )
+                                check(
+                                    SystemClock.elapsedRealtime() - thermalSince < 10 * 60 * 1000
+                                ) {
+                                    "The phone needs more time to cool. Retry processing later; captures are saved."
+                                }
+                                Thread.sleep(500)
+                            }
+                            thermalSince = 0L
                         }
-                        thermalSince = 0L
-                    }
-                    if (p.sample && p.captures.isEmpty())
-                        p =
-                            SampleCapture.create(
+                        if (p.sample && p.captures.isEmpty())
+                            p =
+                                SampleCapture.create(
+                                    store,
+                                    p,
+                                    { stage, value -> report(id, stage, value * .08) },
+                                    check,
+                                )
+                        val sampleOffset = if (p.sample) .08 else 0.0
+                        HdrPipeline(
                                 store,
                                 p,
-                                { stage, value -> report(id, stage, value * .08) },
+                                { stage, value ->
+                                    report(id, stage, sampleOffset + (1 - sampleOffset) * value)
+                                },
                                 check,
                             )
-                    val sampleOffset = if (p.sample) .08 else 0.0
-                    HdrPipeline(
-                            store,
-                            p,
-                            { stage, value ->
-                                report(id, stage, sampleOffset + (1 - sampleOffset) * value)
-                            },
-                            check,
-                        )
-                        .run()
-                    getSystemService(NotificationManager::class.java)
-                        .notify(NOTIFICATION, notification("Your HDR sphere is ready", 1.0, false))
-                } catch (e: CancellationException) {
-                    store.update(id) {
-                        it.copy(state = "paused", stage = "Processing paused", error = null)
+                            .run()
+                        getSystemService(NotificationManager::class.java)
+                            .notify(NOTIFICATION, notification("HDR sphere ready", 1.0, false))
                     }
+                } catch (e: CancellationException) {
+                    if (started)
+                        store.update(id) {
+                            if (it.state in listOf("ready", "review")) it
+                            else
+                                it.copy(state = "paused", stage = "Processing paused", error = null)
+                        }
                     getSystemService(NotificationManager::class.java)
                         .notify(
                             NOTIFICATION,
@@ -123,14 +135,18 @@ class ProcessingService : Service() {
                             ),
                         )
                 } catch (e: Exception) {
-                    store.update(id) {
-                        it.copy(
-                            state = "failed",
-                            stage = "Processing needs attention",
-                            error =
-                                e.message ?: "Processing stopped. Your original captures are saved.",
-                        )
-                    }
+                    if (started)
+                        store.update(id) {
+                            if (it.state in listOf("ready", "review")) it
+                            else
+                                it.copy(
+                                    state = "failed",
+                                    stage = "Processing needs attention",
+                                    error =
+                                        e.message
+                                            ?: "Processing stopped. Your original captures are saved.",
+                                )
+                        }
                     getSystemService(NotificationManager::class.java)
                         .notify(
                             NOTIFICATION,

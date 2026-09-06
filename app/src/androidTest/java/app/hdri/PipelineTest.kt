@@ -68,6 +68,8 @@ class PipelineTest {
         val result = store.read(p.id)
         assertTrue(result.state in listOf("ready", "review"))
         assertEquals(1.0, result.progress, 1e-6)
+        assertEquals(0L, store.storage(result).processing)
+        store.requireSources(p.id)
         val report = JSONObject(File(store.dir(p.id), "report.json").readText())
         assertTrue(report.getDouble("coverage") > .998)
         val hdr =
@@ -161,12 +163,25 @@ class PipelineTest {
             )
             val checkpoint = File(store.dir(p.id), "processed/${p.captures.first().targetId}.f32")
             val savedAt = checkpoint.lastModified()
-            HdrPipeline(store, store.read(p.id), { _, _ -> }, {}).run()
-            assertEquals(
-                "The first HDR checkpoint should be reused",
-                savedAt,
-                checkpoint.lastModified(),
-            )
+            var verifiedReuse = false
+            HdrPipeline(
+                    store,
+                    store.read(p.id),
+                    { stage, _ ->
+                        if (stage.startsWith("Aligning and merging HDR · 2")) {
+                            assertEquals(
+                                "The first HDR checkpoint should be reused",
+                                savedAt,
+                                checkpoint.lastModified(),
+                            )
+                            verifiedReuse = true
+                        }
+                    },
+                    {},
+                )
+                .run()
+            assertTrue(verifiedReuse)
+            assertFalse("Completed checkpoints should be cleared", checkpoint.exists())
             assertTrue(
                 "Clipping findings must survive resume",
                 store.read(p.id).warnings.any {

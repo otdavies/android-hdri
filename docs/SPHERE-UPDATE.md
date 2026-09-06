@@ -1,10 +1,10 @@
 # sphere: light checks and clearer capture
 
-The app is now **sphere**, with a warm neutral palette, a split-sphere launcher mark and Android themed-icon support. Its application ID, signing identity, session storage and HDR format remain compatible with previous Luma Sphere builds. Existing captures open without conversion or rebuilding.
+The app is now **sphere**, with the green/ink palette, a globe launcher mark and Android themed-icon support. Its application ID, signing identity, session storage and HDR format remain compatible with previous Luma Sphere builds. Existing captures open without conversion or rebuilding.
 
 ## A lighting reference on location
 
-Open a completed capture and tap **Check the light**. The default view renders an ideal mirror sphere beside an **18% neutral Lambertian sphere**, using the saved `environment.hdr`. **Explore HDR** shows the same environment directly. Dragging rotates the common reference; both materials share exposure from −8 to +8 stops. Reset restores orientation and 0 EV.
+Open a completed capture and tap **Lighting spheres**. The default view renders an ideal mirror sphere beside an **18% neutral Lambertian sphere**, using the saved `environment.hdr`. **Explore HDR** shows the same environment directly. Dragging rotates the common reference; both materials share exposure from −8 to +8 stops. Reset restores orientation and 0 EV.
 
 The renderer uploads linear RGB32F textures to OpenGL ES 3 and filters them explicitly, so it does not rely on optional float-linear filtering or discard bright sources at the half-float limit. The reflection map retains the saved 2K/4K panorama resolution, with a texture-size fallback for older GPUs. Decoded native image buffers are released before diffuse integration, and texture uploads stream in 64-row blocks rather than allocating another full panorama. Diffuse lighting uses solid-angle-weighted binning to 128 × 64 and positive cosine integration into a 64 × 32 map. The output is `0.18 / pi × integral(L × max(n dot w, 0) dw)`. This avoids the negative lobes that a short spherical-harmonics approximation can create around concentrated practical lights. Diffuse integration, texture preparation and first render have visible progress; all work remains local.
 
@@ -31,7 +31,7 @@ The Preview 9 stitching algorithm is retained. This update targets acquisition s
 
 ## Verified Preview 12
 
-[Install sphere Preview 12](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.12/sphere-0.1.0-preview.apk). Open an existing completed capture and tap **Check the light**; rebuilding is unnecessary for the new lighting view. A fresh capture is needed to assess the camera changes on the Pixel 8.
+[Install sphere Preview 12](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.12/sphere-0.1.0-preview.apk). Open an existing completed capture and tap **Lighting spheres**; rebuilding is unnecessary for the new lighting view. A fresh capture is needed to assess the camera changes on the Pixel 8.
 
 [Actions run 34026523354](https://github.com/otdavies/android-hdri/actions/runs/34026523354) passed 28 JVM tests, Android lint and all 15 installed-APK tests in 54.435 seconds. The exact signed candidate was installed twice and published without rebuilding. The 4K HDR lighting screen loads under the emulator's regular 192 MiB app heap. The directional diffuse test matched all three expected display values exactly: 90, 109 and 123. Uniform-light channel/reflectance checks, exposure changes and actual EGL context recreation also pass.
 
@@ -40,3 +40,5 @@ Earlier candidates were withheld after tests exposed a screenshot timing race, i
 The published APK is 123,774,617 bytes, SHA-256 `05ee2772ffac39c0d4f1323f67f348fc9f929c5ec8d70874054dcc6df4d75a21`. [Release evidence](evidence/sphere-release.json) and [measured lighting values](evidence/sphere-lighting.json) are retained with the source. These checks verify software behavior; physical camera sharpness, focus and glare still require a Pixel 8 capture.
 
 ![Actual installed sphere lighting view, using an analytic 4K environment](evidence/sphere-lighting.png)
+
+Storage controls, the simplified interface and OpenEXR support are documented in [Storage and export](STORAGE-EXPORT.md).

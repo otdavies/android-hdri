@@ -195,6 +195,10 @@ jobs:
           key: android-test-sdk-api36-aosp-x86_64-v1
       - name: Test exact candidates without Gradle or rebuilding
         run: ./scripts/run-emulator.sh
+      - name: Verify exported files with the OpenEXR reference decoder
+        run: |
+          python3 -m pip install OpenEXR==3.3.3 numpy==2.2.6
+          python3 scripts/verify-exr.py verification
       - uses: actions/upload-artifact@v4
         if: always()
         with:

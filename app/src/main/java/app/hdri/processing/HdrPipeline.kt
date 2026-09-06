@@ -146,7 +146,10 @@ class HdrPipeline(
         }
     }
 
-    fun run() {
+    fun run() = store.withFiles(project.id) { runWithFiles() }
+
+    private fun runWithFiles() {
+        store.requireSources(project.id)
         val started = System.nanoTime()
         var stageStart = started
         val timings = JSONObject()
@@ -372,13 +375,27 @@ class HdrPipeline(
             store.update(project.id) {
                 it.copy(
                     state = if (warnings.isEmpty()) "ready" else "review",
-                    stage = "Your HDR sphere is ready",
-                    progress = 1.0,
+                    stage = "Clearing processing files",
+                    progress = .99,
                     warnings = warnings.distinct(),
                     error = null,
                 )
             }
-            progress("Your HDR sphere is ready", 1.0)
+            // Outputs and completion state are committed before pruning. A cleanup
+            // failure must not turn a finished panorama into a failed build.
+            try {
+                store.clearProcessingFiles(
+                    project.id,
+                    { progress("Clearing processing files", .99 + .009 * it) },
+                )
+            } catch (e: Exception) {
+                warnings +=
+                    "Temporary processing files remain. Clear them from Storage when convenient."
+            }
+            store.update(project.id) {
+                it.copy(stage = "HDR sphere ready", progress = 1.0, warnings = warnings.distinct())
+            }
+            progress("HDR sphere ready", 1.0)
         } finally {
             tempHdr.delete()
             tempJpg.delete()

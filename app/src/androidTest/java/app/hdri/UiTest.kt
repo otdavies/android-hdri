@@ -19,6 +19,7 @@ import app.hdri.ui.CaptureOverlay
 import app.hdri.ui.SphereTheme
 import java.io.File
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,9 +59,89 @@ class UiTest {
         rule.onNodeWithText("Keep the lens\nin one place.").assertIsDisplayed()
         screenshot("setup.png")
         rule.onNodeWithText("Detailed environment").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("Quick light study").assertExists()
+        rule.onNodeWithText("Quick capture").assertExists()
         rule.onNodeWithText("Start capture").performScrollTo().assertIsDisplayed()
         screenshot("quality.png")
+    }
+
+    @Test
+    fun completedCaptureShowsLightingAndConfirmsSourceRemoval() {
+        val store =
+            app.hdri.data.SessionStore(InstrumentationRegistry.getInstrumentation().targetContext)
+        val initial = store.create(app.hdri.data.Quality.QUICK)
+        val dir = store.dir(initial.id)
+        val bitmap =
+            android.graphics.Bitmap.createBitmap(512, 256, android.graphics.Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(android.graphics.Color.rgb(72, 85, 65))
+        File(dir, "preview.jpg").outputStream().use {
+            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it)
+        }
+        bitmap.recycle()
+        app.hdri.core.HdrWriter(File(dir, "environment.hdr").outputStream(), 512, 256).use { writer
+            ->
+            repeat(256) { writer.row(FloatArray(512 * 3) { 1f }) }
+        }
+        File(dir, "source.jpg").writeBytes(ByteArray(2048))
+        store.update(initial.id) {
+            it.copy(
+                name = "Storage test",
+                state = "ready",
+                captures =
+                    listOf(
+                        app.hdri.data.Capture(
+                            0,
+                            app.hdri.core.Q(),
+                            app.hdri.core.V3.ZERO,
+                            app.hdri.core.Lens(16, 8, 10.0, 10.0, 8.0, 4.0),
+                            listOf(app.hdri.data.Exposure("source.jpg", 1000, 100, 0)),
+                        )
+                    ),
+            )
+        }
+        try {
+            rule.runOnUiThread {
+                androidx.lifecycle
+                    .ViewModelProvider(rule.activity)[AppViewModel::class.java]
+                    .open(initial.id)
+            }
+            rule.waitUntil(10_000) {
+                rule.onAllNodesWithText("Lighting spheres").fetchSemanticsNodes().isNotEmpty()
+            }
+            rule.onNodeWithText("Lighting spheres").assertIsDisplayed()
+            rule.onNodeWithText("Chrome + 18% grey · rotate and adjust exposure").assertExists()
+            screenshot("capture-detail.png")
+            rule.onNodeWithText("Lighting spheres").performClick()
+            rule.onNodeWithText("Lighting preview").assertExists()
+            rule.onNodeWithContentDescription("Back").performClick()
+            rule.onNodeWithText("Save OpenEXR (.exr)").performScrollTo().assertIsDisplayed()
+            rule.onNodeWithText("Remove source photos").performScrollTo().performClick()
+            rule.onNodeWithText("Remove source photos?").assertIsDisplayed()
+            rule.onNodeWithText("Cancel").performClick()
+            assertTrue(File(dir, "source.jpg").exists())
+            rule.onNodeWithText("Remove source photos").performClick()
+            rule.onNodeWithText("Remove photos").performClick()
+            rule.waitUntil(10_000) {
+                rule
+                    .onAllNodesWithText(
+                        "Source photos removed. Viewing and exporting remain available; rebuilding is unavailable."
+                    )
+                    .fetchSemanticsNodes()
+                    .isNotEmpty()
+            }
+            rule
+                .onNodeWithText(
+                    "Source photos removed. Viewing and exporting remain available; rebuilding is unavailable."
+                )
+                .performScrollTo()
+                .assertIsDisplayed()
+            screenshot("capture-storage.png")
+            rule.onNodeWithText("Rebuild from saved photos").assertDoesNotExist()
+            rule.onNodeWithText("Export original capture bundle").assertDoesNotExist()
+            rule.onNodeWithText("Save OpenEXR (.exr)").performScrollTo().assertIsDisplayed()
+            assertTrue(File(dir, "environment.hdr").exists())
+        } finally {
+            store.delete(initial.id)
+        }
     }
 
     @Test
@@ -106,7 +187,7 @@ class UiTest {
         rule.runOnUiThread {
             state.value =
                 state.value.copy(
-                    message = "Nice aim · capturing automatically",
+                    message = "Aligned · capturing automatically",
                     detail = "Small wobbles are okay. Let the ring fill.",
                     guide = AimGuide(2f, 1f, 2f),
                     aimDegrees = 2.2f,
@@ -116,7 +197,7 @@ class UiTest {
                     markers = listOf(Marker(8, .52f, .49f, false, true)),
                 )
         }
-        rule.onNodeWithText("Nice aim · capturing automatically").assertIsDisplayed()
+        rule.onNodeWithText("Aligned · capturing automatically").assertIsDisplayed()
         rule.onNodeWithText("Auto shutter is settling · 68%").assertIsDisplayed()
         rule.onNodeWithText("Capture now").assertIsEnabled().performClick()
         assertEquals(1, manualTaps)
