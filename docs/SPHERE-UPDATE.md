@@ -27,3 +27,16 @@ These choices follow the reported [Camera2 capture state](https://developer.andr
 New tests cover uniform-light diffuse normalization, high-intensity point-source energy and hemisphere orientation, slow pans, stopping before capture and clearing partial shutter credit. Installed-APK tests read real RGBE fixtures and check GPU-rendered chrome/grey pixel values, exposure, linear display and EGL recreation; a UI test exercises both viewing modes and saves screenshots.
 
 The Preview 9 stitching algorithm is retained. This update targets acquisition sharpness and truthful lighting inspection; it does not claim to repair the remaining curtain parallax in old photos. Real Pixel 8 focus timing, noise and highlight handling need a fresh physical capture to assess. Automated sensor traces and emulator pixels cannot establish that result.
+
+
+## Verified Preview 12
+
+[Install sphere Preview 12](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.12/sphere-0.1.0-preview.apk). Open an existing completed capture and tap **Check the light**; rebuilding is unnecessary for the new lighting view. A fresh capture is needed to assess the camera changes on the Pixel 8.
+
+[Actions run 34026523354](https://github.com/otdavies/android-hdri/actions/runs/34026523354) passed 28 JVM tests, Android lint and all 15 installed-APK tests in 54.435 seconds. The exact signed candidate was installed twice and published without rebuilding. The 4K HDR lighting screen loads under the emulator's regular 192 MiB app heap. The directional diffuse test matched all three expected display values exactly: 90, 109 and 123. Uniform-light channel/reflectance checks, exposure changes and actual EGL context recreation also pass.
+
+Earlier candidates were withheld after tests exposed a screenshot timing race, incorrect integer-texel sampling on the device renderer and a duplicate full-size upload buffer. The final renderer uses explicit dimensions, normalized texel-center lookups and 64-row uploads; the assertions that exposed these issues remain in the gate.
+
+The published APK is 123,774,617 bytes, SHA-256 `05ee2772ffac39c0d4f1323f67f348fc9f929c5ec8d70874054dcc6df4d75a21`. [Release evidence](evidence/sphere-release.json) and [measured lighting values](evidence/sphere-lighting.json) are retained with the source. These checks verify software behavior; physical camera sharpness, focus and glare still require a Pixel 8 capture.
+
+![Actual installed sphere lighting view, using an analytic 4K environment](evidence/sphere-lighting.png)

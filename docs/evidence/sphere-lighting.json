@@ -1,0 +1,32 @@
+{
+  "diffuseGradient": [
+    {
+      "normalY": -0.6,
+      "expectedRed": 90,
+      "renderedRed": 90
+    },
+    {
+      "normalY": 0,
+      "expectedRed": 109,
+      "renderedRed": 109
+    },
+    {
+      "normalY": 0.6,
+      "expectedRed": 123,
+      "renderedRed": 123
+    }
+  ],
+  "rotation": [
+    1,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    1
+  ],
+  "cpuDiffuseNorth": 1.5995443,
+  "cpuDiffuseSouth": 0.40074894
+}

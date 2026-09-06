@@ -1,0 +1,24 @@
+{
+  "sourceCommit": "4f8b74d31e494a1397196e6c355a18c11bd05c97",
+  "runId": 34026523354,
+  "releaseTag": "v0.1.0-preview.12",
+  "apkFilename": "sphere-0.1.0-preview.apk",
+  "apkSha256": "05ee2772ffac39c0d4f1323f67f348fc9f929c5ec8d70874054dcc6df4d75a21",
+  "apkBytes": 123774617,
+  "jvmTests": 28,
+  "installedApkTests": 15,
+  "installedApkTestSeconds": 54.435,
+  "verificationArtifactSha256": "65c41536825a29a1579eb8839e77ec800d1aa8693bdf5cb8efd3ffdee69424d6",
+  "directionalDiffuseExpectedRed": [
+    90,
+    109,
+    123
+  ],
+  "directionalDiffuseRenderedRed": [
+    90,
+    109,
+    123
+  ],
+  "lightingFixtureWidth": 4096,
+  "physicalPixel8CaptureValidated": false
+}
