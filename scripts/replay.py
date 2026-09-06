@@ -7,6 +7,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('capture', type=pathlib.Path)
 parser.add_argument('--work-dir', required=True, type=pathlib.Path)
 parser.add_argument('--ref', help='Optional local Git revision for a before/after comparison')
+parser.add_argument('--export-exr', action='store_true', help='Also export the rebuilt environment with the production OpenEXR writer')
 args = parser.parse_args()
 work = args.work_dir.resolve()
 if work.is_relative_to(ROOT):
@@ -82,5 +83,6 @@ sources += [str(p) for p in (ROOT / 'scripts/replay').glob('*.kt')]
 output = work / 'engine.jar'
 subprocess.run([java,'-cp',compiler_cp,'org.jetbrains.kotlin.cli.jvm.K2JVMCompiler',
     '-no-stdlib','-no-reflect','-jvm-target','17','-classpath',cp,'-d',str(output),*sources],check=True)
-subprocess.run([java,'-Xmx3g','-cp',str(output)+os.pathsep+cp,'app.hdri.processing.MainKt',str(work)],check=True)
+subprocess.run([java,'-Xmx3g','-cp',str(output)+os.pathsep+cp,'app.hdri.processing.MainKt',str(work),
+    *(['--export-exr'] if args.export_exr else [])],check=True)
 print(f'Private outputs: {dest}')

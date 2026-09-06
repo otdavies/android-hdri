@@ -76,3 +76,13 @@ Matched-ray errors are residuals on accepted correspondences, not absolute geome
 Visual comparison confirms substantial recovery of texture lost to the response estimate and reduced brightness discontinuities. It also identifies remaining curtain and ceiling joins. Experiments with globally enhanced registration images, a strongly fixed focal length, and weak source-centre seam preference were rejected because they damaged coverage or object boundaries. An additional dense-refinement pass was also withheld: it increased runtime without a sufficient visual benefit.
 
 This update does not yet meet the requested Google Photo Sphere quality bar. The remaining priority is reliable correspondence and seam-local structure preservation in weak or repetitive areas, including cycle consistency across multiple views. A lower fitting residual alone must not justify a release that visibly tears objects.
+
+A separate seam-only flow experiment evaluated 118 adjacent image pairs and accepted 28 local corrections using forward/backward consistency, patch agreement, and seam residual checks. Its visual improvement was modest and estimating the fields alone added about eight host seconds. It is not included in the app. This result points toward better seam-local correspondence and structure constraints, rather than adding another unconditional flow pass.
+
+To reproduce a private capture with the production processor and OpenEXR writer:
+
+```sh
+python3 scripts/replay.py /private/capture.zip --work-dir /private/replay --export-exr
+```
+
+Keep the work directory outside the public checkout. `HOST_SECONDS` measures processing; `EXR_EXPORT_SECONDS` reports the subsequent export separately. The JPEG is a tone-mapped preview; the HDR and EXR retain the same relative linear lighting values, including the existing RGBE storage quantization. Rebuilding cannot recover information already clipped or blurred in the source photographs.
