@@ -22,6 +22,7 @@ internal class SphereViewer(
 ) : GLSurfaceView(context), GLSurfaceView.Renderer {
     private var shader = 0
     private val textures = IntArray(2)
+    private val sizes = IntArray(4)
     private var aspect = 1f
     @Volatile private var yaw = 0.0
     @Volatile private var pitch = 0.0
@@ -91,18 +92,15 @@ internal class SphereViewer(
                 val map =
                     if (original.width <= limit[0]) original
                     else original.reduced(limit[0], limit[0] / 2)
+                sizes[index * 2] = map.width
+                sizes[index * 2 + 1] = map.height
                 glBindTexture(GL_TEXTURE_2D, textures[index])
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
                 glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
-                val data =
-                    ByteBuffer.allocateDirect(map.rgb.size * 4)
-                        .order(ByteOrder.nativeOrder())
-                        .asFloatBuffer()
-                data.put(map.rgb).position(0)
-                // RGB32F + manual filtering preserves highlights above half-float range and
-                // works without optional float-linear texture extensions.
+                // Allocate the GPU texture once, then stream small row blocks. A second
+                // 96 MiB full-image buffer can exceed Android's regular app heap at 4K.
                 glTexImage2D(
                     GL_TEXTURE_2D,
                     0,
@@ -112,8 +110,19 @@ internal class SphereViewer(
                     0,
                     GL_RGB,
                     GL_FLOAT,
-                    data,
+                    null,
                 )
+                val blockRows = minOf(64, map.height)
+                val data =
+                    ByteBuffer.allocateDirect(map.width * blockRows * 12)
+                        .order(ByteOrder.nativeOrder())
+                        .asFloatBuffer()
+                for (y in 0 until map.height step blockRows) {
+                    val rows = minOf(blockRows, map.height - y)
+                    data.clear()
+                    data.put(map.rgb, y * map.width * 3, rows * map.width * 3).flip()
+                    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, y, map.width, rows, GL_RGB, GL_FLOAT, data)
+                }
             }
             check(glGetError() == GL_NO_ERROR) { "The phone could not upload the HDR textures." }
         } catch (e: Exception) {
@@ -136,6 +145,11 @@ internal class SphereViewer(
             glActiveTexture(GL_TEXTURE0 + i)
             glBindTexture(GL_TEXTURE_2D, textures[i])
             glUniform1i(glGetUniformLocation(shader, if (i == 0) "env" else "diffuseMap"), i)
+            glUniform2f(
+                glGetUniformLocation(shader, if (i == 0) "envSize" else "diffuseSize"),
+                sizes[i * 2].toFloat(),
+                sizes[i * 2 + 1].toFloat(),
+            )
         }
         val q = Q.look(yaw, pitch)
         val matrix =
@@ -201,16 +215,14 @@ precision highp sampler2D;
 in vec2 pos;out vec4 color;
 uniform sampler2D env;uniform sampler2D diffuseMap;
 uniform mat3 rot;uniform float aspect;uniform float gain;
+uniform vec2 envSize;uniform vec2 diffuseSize;
 uniform bool probes;uniform bool linearDisplay;
-vec3 fetch(sampler2D t, ivec2 p) {
-    ivec2 s=textureSize(t,0);p.x=(p.x%s.x+s.x)%s.x;p.y=clamp(p.y,0,s.y-1);
-    return texelFetch(t,p,0).rgb;
-}
-vec3 light(sampler2D t,vec3 d) {
+vec3 light(sampler2D t,vec2 dims,vec3 d) {
     d=normalize(d);
     vec2 uv=vec2(atan(d.x,-d.z)/6.283185307+.5,.5-asin(clamp(d.y,-1.,1.))/3.141592654);
-    vec2 p=uv*vec2(textureSize(t,0))-.5;ivec2 i=ivec2(floor(p));vec2 f=fract(p);
-    return mix(mix(fetch(t,i),fetch(t,i+ivec2(1,0)),f.x),mix(fetch(t,i+ivec2(0,1)),fetch(t,i+ivec2(1,1)),f.x),f.y);
+    vec2 p=uv*dims-.5;vec2 f=fract(p);vec2 corner=(floor(p)+.5)/dims;vec2 stepUV=1./dims;
+    return mix(mix(textureLod(t,corner,0.).rgb,textureLod(t,corner+vec2(stepUV.x,0.),0.).rgb,f.x),
+               mix(textureLod(t,corner+vec2(0.,stepUV.y),0.).rgb,textureLod(t,corner+stepUV,0.).rgb,f.x),f.y);
 }
 vec3 display(vec3 radiance) {
     vec3 c=max(radiance*gain,vec3(0.));
@@ -218,7 +230,7 @@ vec3 display(vec3 radiance) {
     return mix(12.92*c,1.055*pow(c,vec3(1./2.4))-.055,step(vec3(.0031308),c));
 }
 void main() {
-    if(!probes) {color=vec4(display(light(env,rot*vec3(pos.x*aspect*.7,pos.y*.7,-1.))),1.);return;}
+    if(!probes) {color=vec4(display(light(env,envSize,rot*vec3(pos.x*aspect*.7,pos.y*.7,-1.))),1.);return;}
     vec2 p=vec2(pos.x*aspect,pos.y);
     float radius=min(aspect*.41,.78);bool chrome=pos.x<0.;
     vec2 local=(p-vec2((chrome?-.5:.5)*aspect,0.))/radius;
@@ -226,7 +238,7 @@ void main() {
     vec3 background=vec3(.082,.090,.098);
     if(rr>1.+aa) {color=vec4(background,1.);return;}
     vec3 n=normalize(vec3(local,sqrt(max(0.,1.-rr))));
-    vec3 radiance=chrome?light(env,rot*reflect(vec3(0.,0.,-1.),n)):.18*light(diffuseMap,rot*n);
+    vec3 radiance=chrome?light(env,envSize,rot*reflect(vec3(0.,0.,-1.),n)):.18*light(diffuseMap,diffuseSize,rot*n);
     color=vec4(mix(display(radiance),background,smoothstep(1.-aa,1.+aa,rr)),1.);
 }
 """

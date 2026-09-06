@@ -174,7 +174,7 @@ class LightingViewerTest {
         val map = LightingMap(w, h, rgb)
         val diffuse = map.diffuse()
         // For L(w)=1+0.9*w.y, Lambertian unit-reflectance radiance is 1+0.6*n.y.
-        assertEquals(1.6, diffuse.rgb[(16 * 0 + 0) * 3].toDouble(), .01)
+        assertEquals(1.6, diffuse.rgb[0].toDouble(), .01)
         val light = LightingEnvironment(map, diffuse, 1f)
         val ready = AtomicBoolean(false)
         val failure = AtomicReference<String?>(null)
@@ -201,6 +201,8 @@ class LightingViewerTest {
         val frame = checkNotNull(image)
         try {
             val radius = min(viewer.width * .41, viewer.height * .78) / 2
+            val measurements = org.json.JSONArray()
+            val checks = mutableListOf<Pair<Int, Int>>()
             for (ny in listOf(-.6, 0.0, .6)) {
                 val pixel =
                     frame.getPixel(
@@ -210,10 +212,48 @@ class LightingViewerTest {
                 val outgoing = .18 * (1 + .6 * ny)
                 val mapped = outgoing / (1 + outgoing)
                 val expected = (255 * (1.055 * mapped.pow(1 / 2.4) - .055)).roundToInt()
+                measurements.put(
+                    org.json
+                        .JSONObject()
+                        .put("normalY", ny)
+                        .put("expectedRed", expected)
+                        .put("renderedRed", Color.red(pixel))
+                )
+                checks += expected to Color.red(pixel)
+            }
+            val rotation = FloatArray(9)
+            val query = CountDownLatch(1)
+            viewer.queueEvent {
+                val program = IntArray(1)
+                android.opengl.GLES30.glGetIntegerv(
+                    android.opengl.GLES30.GL_CURRENT_PROGRAM,
+                    program,
+                    0,
+                )
+                android.opengl.GLES30.glGetUniformfv(
+                    program[0],
+                    android.opengl.GLES30.glGetUniformLocation(program[0], "rot"),
+                    rotation,
+                    0,
+                )
+                query.countDown()
+            }
+            assertTrue(query.await(5, TimeUnit.SECONDS))
+            File(verification, "lighting-gpu.json")
+                .writeText(
+                    org.json
+                        .JSONObject()
+                        .put("diffuseGradient", measurements)
+                        .put("rotation", org.json.JSONArray(rotation.toList()))
+                        .put("cpuDiffuseNorth", diffuse.rgb[0])
+                        .put("cpuDiffuseSouth", diffuse.rgb[diffuse.rgb.size - 3])
+                        .toString(2)
+                )
+            checks.forEach { (expected, actual) ->
                 assertEquals(
-                    "Diffuse direction n.y=$ny",
+                    "Directional diffuse lighting",
                     expected.toDouble(),
-                    Color.red(pixel).toDouble(),
+                    actual.toDouble(),
                     3.0,
                 )
             }
