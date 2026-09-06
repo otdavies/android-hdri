@@ -14,7 +14,6 @@ import app.hdri.core.*
 import app.hdri.data.*
 import com.google.ar.core.Config
 import com.google.ar.core.Session
-import com.google.ar.core.TrackingState
 import java.io.File
 import java.io.FileOutputStream
 import java.util.EnumSet
@@ -33,8 +32,8 @@ data class Marker(
 )
 
 data class CaptureUi(
-    val message: String = "Starting AR camera…",
-    val detail: String = "Camera and motion tracking",
+    val message: String = "Starting camera…",
+    val detail: String = "Camera and gyro guidance",
     val captured: Int = 0,
     val total: Int = 0,
     val markers: List<Marker> = emptyList(),
@@ -48,13 +47,11 @@ data class CaptureUi(
     val guide: AimGuide? = null,
     val aimDegrees: Float = 180f,
     val aimLocked: Boolean = false,
-    val positionCm: Float = 0f,
-    val positionBlocked: Boolean = false,
     val manualReady: Boolean = false,
     val notice: String? = null,
 )
 
-/** ARCore owns tracking; a paused shared session hands manual bracket capture to Camera2. */
+/** Inertial orientation owns guidance. ARCore supplies preview/intrinsics and shared Camera2. */
 @SuppressLint("MissingPermission")
 class CaptureEngine(
     private val activity: Activity,
@@ -75,6 +72,8 @@ class CaptureEngine(
     private val handler = Handler(thread.looper)
     private val motionThread = HandlerThread("HDRI motion").apply { start() }
     private val gyro = GyroHistory()
+    private val orientation = InertialOrientation()
+    @Volatile private var sensorOrientation = 90
     private val arLock = Any()
     private val backdrop = CameraBackdrop()
     private val sensors = activity.getSystemService(SensorManager::class.java)
@@ -90,15 +89,14 @@ class CaptureEngine(
     @Volatile private var opened = false
     @Volatile private var latestResult: TotalCaptureResult? = null
     @Volatile private var latestQ = Q()
-    @Volatile private var latestPosition = V3.ZERO
     @Volatile private var lens: Lens? = null
     @Volatile private var offset: Q? = null
-    private var origin: V3? = null
     private var width = 1
     private var height = 1
     private var lastUi = 0L
     private var lastFrameTimestamp = 0L
     private var selected = -1
+    @Volatile private var planning = false
     private val gate = SteadyGate()
     private var pending: Pending? = null
     @Volatile private var manualRequested = false
@@ -110,7 +108,7 @@ class CaptureEngine(
     private data class Pending(
         val id: Int,
         val q: Q,
-        val position: V3,
+        val offset: Q,
         val lens: Lens,
         val expected: Int,
         val results: MutableMap<Long, Exposure> = mutableMapOf(),
@@ -131,19 +129,19 @@ class CaptureEngine(
                         }
                     session.configure(config)
                 }
-            sensors.getDefaultSensor(Sensor.TYPE_GYROSCOPE)?.let {
-                // JPEG writes must never delay sensor integration.
-                sensors.registerListener(
-                    this,
-                    it,
-                    SensorManager.SENSOR_DELAY_GAME,
-                    Handler(motionThread.looper),
-                )
+            val motionHandler = Handler(motionThread.looper)
+            for (type in listOf(Sensor.TYPE_GAME_ROTATION_VECTOR, Sensor.TYPE_GYROSCOPE)) {
+                val sensor =
+                    sensors.getDefaultSensor(type)
+                        ?: error(
+                            "This phone needs a gyroscope and fused rotation sensor for sky capture."
+                        )
+                check(sensors.registerListener(this, sensor, 10_000, motionHandler)) {
+                    "Could not start the motion sensors. Reopen capture to try again."
+                }
             }
         } catch (e: Exception) {
-            fail(
-                "AR camera is unavailable. Update Google Play Services for AR, then reopen capture. ${e.message.orEmpty()}"
-            )
+            fail("Camera or motion sensors are unavailable. ${e.message.orEmpty()}")
         }
     }
 
@@ -185,14 +183,16 @@ class CaptureEngine(
                 if (frame.timestamp == 0L || frame.timestamp == lastFrameTimestamp) return
                 lastFrameTimestamp = frame.timestamp
                 val c = frame.camera
-                val tracked = c.trackingState == TrackingState.TRACKING
-                if (!tracked) {
+                // The AR camera's pose and tracking state are intentionally never consulted.
+                // Its image stream and intrinsics remain usable when visual tracking is paused.
+                val motion = orientation.latest(SystemClock.elapsedRealtimeNanos())
+                if (motion == null) {
                     manualRequested = false
                     gate.reset()
                     emit(
                         CaptureUi(
-                            "Finding your position…",
-                            "Move slowly and point at textured surfaces. ${c.trackingFailureReason.name.lowercase().replace('_',' ')}",
+                            "Waiting for motion sensors…",
+                            "Gyro guidance will resume automatically. Stay in place.",
                             project.captures.size,
                             project.targets.size,
                             needsAnchor = state.value.needsAnchor,
@@ -200,12 +200,9 @@ class CaptureEngine(
                     )
                     return
                 }
-                val r = c.pose.rotationQuaternion
                 latestQ =
-                    Q(r[0].toDouble(), r[1].toDouble(), r[2].toDouble(), r[3].toDouble())
+                    (motion.device * InertialOrientation.cameraInDevice(sensorOrientation))
                         .normalized()
-                val p = c.pose.translation
-                latestPosition = V3(p[0].toDouble(), p[1].toDouble(), p[2].toDouble())
                 val i = c.imageIntrinsics
                 val dims = i.imageDimensions
                 val f = i.focalLength
@@ -223,17 +220,25 @@ class CaptureEngine(
                             .scaled(it.width, it.height)
                 }
                 if (offset == null && project.captures.isEmpty()) {
-                    val fw = latestQ.rotate(V3.FORWARD)
-                    offset = Q.axis(V3(0.0, atan2(fw.x, -fw.z), 0.0))
-                    origin = latestPosition
+                    offset = InertialOrientation.zeroHeading(motion.device)
                 }
-                if (project.targets.isEmpty() && lens != null) {
-                    val targets = Sphere.targets(min(lens!!.fovX, lens!!.fovY))
-                    project = project.copy(targets = targets)
-                    handler.post {
-                        runCatching { store.update(project.id) { it.copy(targets = targets) } }
-                            .onFailure { fail("Could not save capture plan: ${it.message}") }
-                    }
+                if (planning || errorLatched) return
+                if (
+                    project.targets.isEmpty() || project.coverageVersion < CoveragePlanner.VERSION
+                ) {
+                    val captureLens = lens ?: return
+                    planning = true
+                    state.value =
+                        state.value.copy(
+                            message = "Optimizing sphere coverage…",
+                            detail = "Using the full camera view to reduce the number of stops.",
+                            ready = false,
+                        )
+                    val cameraInDisplay =
+                        InertialOrientation.displayInDevice(rotation * 90).inverse() *
+                            InertialOrientation.cameraInDevice(sensorOrientation)
+                    handler.post { preparePlan(captureLens, cameraInDisplay) }
+                    return
                 }
                 if (state.value.needsAnchor) {
                     emit(
@@ -269,20 +274,11 @@ class CaptureEngine(
                     gate.reset()
                 }
                 val angle = forward.angle(next.ray)
-                // Initial framing is free. Establish the pivot at the first actual capture.
-                val shift =
-                    if (project.captures.isEmpty()) 0.0
-                    else (latestPosition - (origin ?: latestPosition)).length()
-                val dwell = gate.update(frame.timestamp, q, angle, true, shift)
-                val display = c.displayOrientedPose.rotationQuaternion
+                val dwell = gate.update(motion.time, q, angle, true)
                 val dq =
                     (offset ?: Q()) *
-                        Q(
-                            display[0].toDouble(),
-                            display[1].toDouble(),
-                            display[2].toDouble(),
-                            display[3].toDouble(),
-                        )
+                        motion.device *
+                        InertialOrientation.displayInDevice(rotation * 90)
                 val proj = FloatArray(16)
                 c.getProjectionMatrix(proj, 0, .1f, 100f)
                 val markers =
@@ -301,16 +297,9 @@ class CaptureEngine(
                                 t.id == next.id,
                             )
                     }
-                val guide =
-                    AimGuide.from(
-                        dq,
-                        next.ray,
-                        (offset ?: Q()).rotate((origin ?: latestPosition) - latestPosition),
-                    )
-                val blocked = shift > CaptureTolerance.POSITION_LIMIT
+                val guide = AimGuide.from(dq, next.ray)
                 val msg =
                     when {
-                        blocked -> guide.positionInstruction
                         gate.reason == HoldReason.SETTLING || gate.reason == HoldReason.READY ->
                             "Nice aim · capturing automatically"
                         else -> guide.instruction
@@ -318,13 +307,9 @@ class CaptureEngine(
                 emit(
                     CaptureUi(
                         msg,
-                        if (blocked)
-                            "${(shift*100).roundToInt()} cm from your pivot · follow the amber guide"
-                        else if (shift > CaptureTolerance.POSITION_WARNING)
-                            "${(shift*100).roundToInt()} cm from your pivot · small shifts are okay; avoid walking"
-                        else if (angle <= CaptureTolerance.AIM_EXIT)
+                        if (angle <= CaptureTolerance.AIM_EXIT)
                             "Small wobbles are okay. Let the ring fill."
-                        else "Follow the glow and bring the next dot into the ring.",
+                        else "Rotate in place · follow the glow to the next dot.",
                         done.size,
                         project.targets.size,
                         markers,
@@ -334,26 +319,53 @@ class CaptureEngine(
                         aimDegrees = angle.toFloat(),
                         aimLocked =
                             gate.reason == HoldReason.SETTLING || gate.reason == HoldReason.READY,
-                        positionCm = (shift * 100).toFloat(),
-                        positionBlocked = blocked,
-                        manualReady = !blocked && angle <= CaptureTolerance.AIM_ENTER,
+                        manualReady = angle <= CaptureTolerance.AIM_ENTER,
                         notice = if (SystemClock.elapsedRealtime() < noticeUntil) notice else null,
                     )
                 )
-                val manual = manualRequested && !blocked && angle <= CaptureTolerance.AIM_ENTER
+                val manual = manualRequested && angle <= CaptureTolerance.AIM_ENTER
                 manualRequested = false
                 if (dwell >= 1.0 || manual) {
                     capturing = true
-                    if (project.captures.isEmpty()) origin = latestPosition
-                    val position = latestPosition
                     val captureLens = lens!!
-                    handler.post { capture(next.id, q, position, captureLens) }
+                    val captureOffset = offset ?: Q()
+                    handler.post { capture(next.id, q, captureOffset, captureLens) }
                 }
             } catch (e: Exception) {
                 fail(
                     "Tracking stopped: ${e.message.orEmpty()}. Leave capture and reopen to recover your saved photos."
                 )
             }
+        }
+    }
+
+    private fun preparePlan(lens: Lens, cameraInDisplay: Q) {
+        try {
+            val original = project
+            val planned =
+                CoveragePlanner.targets(lens, cameraInDisplay) { progress ->
+                    check(!closed) { "Capture was closed." }
+                    state.value =
+                        state.value.copy(
+                            detail = "Checking overlap · ${(progress * 100).roundToInt()}%"
+                        )
+                }
+            if (closed) return
+            val saved = original.captures.map { PhotoFootprint(it.rotation, it.lens) }
+            val remaining = CoveragePlanner.retainNeeded(planned, lens, cameraInDisplay, saved)
+            if (closed) return
+            project = store.update(original.id) { CapturePlans.replaceRemaining(it, remaining) }
+            val targets = project.targets
+            notice =
+                if (original.targets.isNotEmpty())
+                    "Plan updated · ${remaining.size} stops left · saved photos kept"
+                else "${targets.size} stops · the camera takes HDR exposures at each"
+            noticeUntil = SystemClock.elapsedRealtime() + 6000
+            state.value = state.value.copy(total = targets.size)
+        } catch (e: Exception) {
+            fail("Could not prepare the capture plan: ${e.message}")
+        } finally {
+            planning = false
         }
     }
 
@@ -372,8 +384,10 @@ class CaptureEngine(
 
     fun resumeHere() {
         synchronized(arLock) {
-            offset = (project.captures.first().rotation * latestQ.inverse()).normalized()
-            origin = latestPosition
+            val first = project.captures.firstOrNull() ?: return
+            val motion = orientation.latest(SystemClock.elapsedRealtimeNanos()) ?: return
+            val physical = motion.device * InertialOrientation.cameraInDevice(sensorOrientation)
+            offset = (first.rotation * physical.inverse()).normalized()
             state.value = state.value.copy(needsAnchor = false)
             gate.reset()
         }
@@ -406,6 +420,12 @@ class CaptureEngine(
             val id = session.cameraConfig.cameraId
             val c = manager.getCameraCharacteristics(id)
             characteristics = c
+            check(
+                c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
+            ) {
+                "Capture requires the rear camera."
+            }
+            sensorOrientation = c.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
             val caps = (c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf())
             check(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in caps) {
                 "This camera cannot capture manual exposure brackets."
@@ -571,7 +591,7 @@ class CaptureEngine(
         }
     }
 
-    private fun capture(id: Int, q: Q, position: V3, lens: Lens) {
+    private fun capture(id: Int, q: Q, captureOffset: Q, lens: Lens) {
         if (closed) {
             capturing = false
             return
@@ -602,7 +622,7 @@ class CaptureEngine(
             check(times.size >= 3) {
                 "This scene exceeds the camera's bracket range. Aim at a mid-brightness area and retry."
             }
-            pending = Pending(id, q, position, lens, times.size)
+            pending = Pending(id, q, captureOffset, lens, times.size)
             state.value =
                 state.value.copy(
                     busy = true,
@@ -683,6 +703,11 @@ class CaptureEngine(
                                 CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE,
                             )
                             set(CaptureRequest.TONEMAP_CURVE, TonemapCurve(curve, curve, curve))
+                            if (Build.VERSION.SDK_INT >= 31)
+                                set(
+                                    CaptureRequest.SCALER_ROTATE_AND_CROP,
+                                    CaptureRequest.SCALER_ROTATE_AND_CROP_NONE,
+                                )
                             set(CaptureRequest.JPEG_ORIENTATION, 0)
                             set(CaptureRequest.JPEG_QUALITY, 98.toByte())
                         }
@@ -791,13 +816,6 @@ class CaptureEngine(
                     add("Motion measurements were incomplete; inspect this direction for blur.")
                 else if (excursion > 1.5 || (blur ?: 0.0) > .8)
                     add("Some movement occurred during capture; inspect alignment and sharpness.")
-                if (
-                    (p.position - (origin ?: p.position)).length() >
-                        CaptureTolerance.POSITION_WARNING
-                )
-                    add(
-                        "The phone shifted from its pivot; inspect nearby objects for double edges."
-                    )
             }
             check(exposures.last().seconds / exposures.first().seconds >= 3.8) {
                 "The camera did not produce distinct HDR exposures. Retry this direction."
@@ -810,7 +828,32 @@ class CaptureEngine(
                     "Could not finish saving photos."
                 }
             }
-            val capture = Capture(p.id, p.q, p.position, p.lens, exposures, findings)
+            val middle = exposures[exposures.size / 2]
+            val measuredPose =
+                if (sensorClock)
+                    orientation
+                        .at(
+                            p.windows
+                                .find { it.first == middle.timestamp }
+                                ?.let { it.first + (it.last - it.first) / 2 }
+                                ?: (middle.timestamp + middle.timeNs / 2)
+                        )
+                        ?.let {
+                            (p.offset * it * InertialOrientation.cameraInDevice(sensorOrientation))
+                                .normalized()
+                        }
+                else null
+            // Zero is an assumed common optical center, never a measured translation.
+            val capture =
+                Capture(
+                    p.id,
+                    measuredPose ?: p.q,
+                    V3.ZERO,
+                    p.lens,
+                    exposures,
+                    findings,
+                    "game_rotation_vector_fixed_pivot",
+                )
             project =
                 store.update(project.id) {
                     it.copy(
@@ -855,6 +898,15 @@ class CaptureEngine(
     }
 
     override fun onSensorChanged(e: SensorEvent) {
+        if (e.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR) {
+            val q = FloatArray(4)
+            SensorManager.getQuaternionFromVector(q, e.values)
+            orientation.add(
+                e.timestamp,
+                Q(q[1].toDouble(), q[2].toDouble(), q[3].toDouble(), q[0].toDouble()),
+            )
+            return
+        }
         if (e.sensor.type != Sensor.TYPE_GYROSCOPE) return
         gyro.add(
             e.timestamp,

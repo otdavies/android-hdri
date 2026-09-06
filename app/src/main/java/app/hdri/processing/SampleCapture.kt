@@ -26,8 +26,8 @@ object SampleCapture {
         val h = 240
         val f = w / (2 * tan(Math.toRadians(50.0)))
         val lens = Lens(w, h, f, f, w / 2.0, h / 2.0)
-        val targets = Sphere.targets(min(lens.fovX, lens.fovY))
-        store.update(p.id) { it.copy(targets = targets) }
+        val targets = CoveragePlanner.targets(lens) { progress("Planning sample coverage", it) }
+        store.update(p.id) { it.copy(targets = targets, coverageVersion = CoveragePlanner.VERSION) }
         val captures =
             targets.mapIndexed { i, t ->
                 check()
@@ -64,7 +64,7 @@ object SampleCapture {
                         }
                         Exposure(name, (time * 1e9).toLong(), 100, (i * 3 + n).toLong() + 1)
                     }
-                Capture(t.id, q, V3.ZERO, lens, exposures)
+                Capture(t.id, q, V3.ZERO, lens, exposures, poseSource = "synthetic")
             }
         return store.update(p.id) { it.copy(captures = captures, targets = targets) }
     }

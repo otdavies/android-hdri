@@ -33,8 +33,8 @@ fun CaptureOverlay(
     val guide = state.guide
     val guiding =
         state.ready && !state.busy && !state.needsAnchor && state.error == null && guide != null
-    val aligned = guiding && state.aimLocked && !state.positionBlocked
-    val color = if (state.positionBlocked) Amber else Lime
+    val aligned = guiding && state.aimLocked
+    val color = Lime
     val pulse by
         rememberInfiniteTransition(label = "Guide glow")
             .animateFloat(
@@ -49,19 +49,13 @@ fun CaptureOverlay(
         Canvas(
             Modifier.fillMaxSize().semantics {
                 contentDescription =
-                    if (guiding)
-                        "Capture guidance: ${if (state.positionBlocked) guide!!.positionInstruction else guide!!.instruction}"
-                    else "Capture reticle"
+                    if (guiding) "Capture guidance: ${guide!!.instruction}" else "Capture reticle"
             }
         ) {
             val center = Offset(size.width / 2, size.height / 2)
             if (guiding && !aligned) {
-                val dx =
-                    if (state.positionBlocked) guide!!.returnVector.x.toFloat() * 120
-                    else guide!!.yaw
-                val dy =
-                    if (state.positionBlocked) -guide!!.returnVector.y.toFloat() * 120
-                    else -guide!!.pitch
+                val dx = guide!!.yaw
+                val dy = -guide.pitch
                 val magnitude = hypot(dx, dy).coerceAtLeast(.01f)
                 val direction = Offset(dx / magnitude, dy / magnitude)
                 val edge =
@@ -194,6 +188,13 @@ fun CaptureOverlay(
                     fontWeight = FontWeight.Medium,
                 )
             }
+            if (guiding)
+                Text(
+                    "GYRO GUIDANCE · ROTATE IN PLACE",
+                    color = Muted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
             if (guiding)
                 Row(
                     Modifier.fillMaxWidth(),

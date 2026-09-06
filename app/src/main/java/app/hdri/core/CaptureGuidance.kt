@@ -8,7 +8,6 @@ data class AimGuide(
     val pitch: Float = 0f,
     val roll: Float = 0f,
     val canLevel: Boolean = true,
-    val returnVector: V3 = V3.ZERO,
 ) {
     val instruction: String
         get() {
@@ -20,18 +19,8 @@ data class AimGuide(
                 .ifEmpty { "You're aligned" }
         }
 
-    val positionInstruction: String
-        get() {
-            val v = returnVector
-            return when (maxOf(abs(v.x), abs(v.y), abs(v.z))) {
-                abs(v.x) -> if (v.x > 0) "Shift the phone right" else "Shift the phone left"
-                abs(v.y) -> if (v.y > 0) "Lift the phone" else "Lower the phone"
-                else -> if (v.z < 0) "Move the phone forward" else "Move the phone back"
-            }
-        }
-
     companion object {
-        fun from(displayRotation: Q, target: V3, returnToOrigin: V3): AimGuide {
+        fun from(displayRotation: Q, target: V3): AimGuide {
             val inverse = displayRotation.inverse()
             val direction = inverse.rotate(target)
             val up = inverse.rotate(V3(0.0, 1.0, 0.0))
@@ -40,7 +29,6 @@ data class AimGuide(
                 Math.toDegrees(atan2(direction.y, hypot(direction.x, direction.z))).toFloat(),
                 Math.toDegrees(atan2(up.x, up.y)).toFloat(),
                 hypot(up.x, up.y) > .25,
-                inverse.rotate(returnToOrigin),
             )
         }
     }

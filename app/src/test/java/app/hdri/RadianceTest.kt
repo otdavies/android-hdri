@@ -66,7 +66,8 @@ class RadianceTest {
                 1234,
                 "Test",
                 Quality.DETAIL,
-                targets = Sphere.targets(60.0),
+                targets = listOf(Target(0, 0.0, 0.0)),
+                coverageVersion = CoveragePlanner.VERSION,
                 captures =
                     listOf(
                         Capture(
@@ -75,6 +76,7 @@ class RadianceTest {
                             V3.ZERO,
                             Lens(800, 600, 500.0, 500.0, 400.0, 300.0),
                             listOf(Exposure("one.jpg", 123456789L, 125, 987654321234567L)),
+                            poseSource = "game_rotation_vector_fixed_pivot",
                         )
                     ),
             )
@@ -82,6 +84,14 @@ class RadianceTest {
         assertEquals(p.captures[0].exposures, restored.captures[0].exposures)
         assertTrue(p.captures[0].rotation.angle(restored.captures[0].rotation) < 1e-5)
         assertEquals(p.targets, restored.targets)
+        assertEquals(p.coverageVersion, restored.coverageVersion)
+        assertEquals(p.captures[0].poseSource, restored.captures[0].poseSource)
+        val legacy = SessionStore.encode(p)
+        legacy.remove("coverageVersion")
+        legacy.getJSONArray("captures").getJSONObject(0).remove("poseSource")
+        val old = SessionStore.decode(legacy)
+        assertEquals(0, old.coverageVersion)
+        assertEquals("arcore", old.captures[0].poseSource)
     }
 
     @Test(expected = IllegalArgumentException::class)

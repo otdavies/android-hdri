@@ -98,7 +98,7 @@ private fun LumaApp(vm: AppViewModel) {
             if (resume) vm.navigate(Screen.CAPTURE) else vm.create(quality)
         } catch (e: Exception) {
             vm.error(
-                "AR tracking could not start: ${e.message}. Check that Google Play Services for AR is installed."
+                "Camera services could not start: ${e.message}. Check that Google Play Services for AR is installed."
             )
         }
     }
@@ -403,7 +403,7 @@ private fun Setup(
         )
         InfoCard(
             "02  Meet each dot",
-            "Aim at a guide point and hold steady. The phone captures the exposure bracket automatically, including the sky and ground.",
+            "Hold the phone upright, then follow the dots. Gyro guidance works on blank sky. Each stop automatically captures an HDR bracket.",
         )
         InfoCard(
             "03  Let the sphere develop",
@@ -430,7 +430,7 @@ private fun Setup(
             }
         }
         Text(
-            "Use a still scene and leave at least 1 GB free. HDR exports contain relative lighting values. AR tracking needs Google Play Services for AR installed; capture and stitching then work offline.",
+            "Use a still scene and leave at least 1 GB free. HDR exports contain relative lighting values. Camera preview needs Google Play Services for AR installed. Gyro guidance and stitching work offline.",
             color = Muted,
             fontSize = 13.sp,
             lineHeight = 20.sp,

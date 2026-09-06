@@ -6,7 +6,7 @@ A native, local-first Android app for guided spherical HDR photography. Built fo
 
 Download **`hdri-0.1.0-preview.apk`** from the newest [GitHub Release](https://github.com/otdavies/android-hdri/releases). Open it on your phone and allow your browser or Files app to install this APK when Android asks. Future preview APKs install over the same application, preserving captures when the signing identity is retained.
 
-Google Play Services for AR must be installed before offline capture. The app checks this and can open the system installation flow. It does not use Cloud Anchors or upload photographs. Processing and the sample capture also work without ARCore.
+Google Play Services for AR is currently used for camera preview and lens intrinsics and must be installed before offline capture. Guidance uses the phone’s fused gyroscope and gravity, not AR position tracking. The app checks this and can open the system installation flow. It does not use Cloud Anchors or upload photographs. Processing and the sample capture also work without ARCore.
 
 ## Capture and export
 
@@ -18,15 +18,16 @@ Google Play Services for AR must be installed before offline capture. The app ch
 
 **Explore a sample capture** creates an analytic HDR light stage on the phone and runs it through the same image pipeline. It is useful for testing processing and export before a real capture.
 
-Saved capture sessions survive app restarts. Returning to capture asks you to match a reference photograph to re-establish the coordinate frame; it does not pretend a previous AR coordinate frame survives process death. Interrupted processing restarts from valid HDR checkpoints. Original exposure JPEGs and metadata can be exported as a ZIP.
+Saved capture sessions survive app restarts. Returning to capture asks you to match a reference photograph to re-establish orientation at the same physical location. Interrupted processing restarts from valid HDR checkpoints. Original exposure JPEGs and metadata can be exported as a ZIP.
 
 ## What this preview implements
 
-- Real ARCore tracking and a shared Camera2 still camera; manual, timestamp-matched HDR brackets.
-- Field-of-view-derived spherical coverage; alignment dwell, tracking-loss pause, position-drift and bracket-motion checks.
+- Continuous fused gyro/gravity guidance with a fixed capture center; manual, timestamp-matched Camera2 HDR brackets. Blank sky and AR relocalization cannot move guide points.
+- Compact rectangular-field-of-view coverage with crop/aim/roll margins; old unfinished plans are reduced while saved photos are retained.
+- Forgiving automatic alignment dwell, stale-motion-sensor pause and exposure-time bracket-motion checks. No estimated distance or walking corrections.
 - Fixed daylight white balance, fixed tone curve, measured shutter/ISO metadata, retained originals.
 - Camera response estimation, exposure alignment, weighted radiance merge and motion rejection.
-- ORB/RANSAC overlap matching and robust rotation refinement with an AR orientation prior.
+- ORB/RANSAC overlap matching and robust rotation refinement with an inertial orientation prior.
 - Spherical inverse warping, seam-label optimization, float multiband blending, longitude wrapping and gap detection.
 - Bounded image sizes and tiled rendering, cancellation, thermal cooldown, storage checks and atomic manifests.
 - Relative linear RGB Radiance HDR export, tone-mapped JPEG with GPano metadata, interactive viewer and Android document export.
@@ -49,4 +50,4 @@ Windows: use `gradlew.bat` with the same arguments. Local release builds use the
 
 The first commit copied the Android workflow from `otdavies/route`. Routine main pushes run unit tests and lint. A commit containing `[release]`, or **Actions → Android → Run workflow → release**, builds paired APKs once, verifies those exact candidates in an emulator, then publishes the same application APK. See [CI and signing](docs/CI.md).
 
-See [handheld capture update](docs/CAPTURE-UPDATE.md), [research and design](docs/RESEARCH.md), [architecture](docs/ARCHITECTURE.md), [validation results and screenshots](docs/VALIDATION.md), and [preview notes](docs/PREVIEW.md).
+See [sky capture and fewer stops](docs/SKY-CAPTURE.md), [handheld capture update](docs/CAPTURE-UPDATE.md), [research and design](docs/RESEARCH.md), [architecture](docs/ARCHITECTURE.md), [validation results and screenshots](docs/VALIDATION.md), and [preview notes](docs/PREVIEW.md).

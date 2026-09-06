@@ -71,7 +71,7 @@ class UiTest {
                     message = "Turn right · tilt up",
                     detail = "Follow the glow and bring the next dot into the ring.",
                     captured = 7,
-                    total = 44,
+                    total = 41,
                     ready = true,
                     guide = AimGuide(26f, 16f, 12f),
                     aimDegrees = 30f,
@@ -93,6 +93,7 @@ class UiTest {
             }
         }
         rule.onNodeWithText("AUTO CAPTURE").assertIsDisplayed()
+        rule.onNodeWithText("GYRO GUIDANCE · ROTATE IN PLACE").assertIsDisplayed()
         rule.onNodeWithText("Turn right · tilt up").assertIsDisplayed()
         rule.onNodeWithText("Capture now").assertIsNotEnabled()
         screenshot("capture-guidance.png")
@@ -126,7 +127,7 @@ class UiTest {
                     ready = false,
                     manualReady = false,
                     guide = null,
-                    message = "Finding your position…",
+                    message = "Waiting for motion sensors…",
                     aimLocked = false,
                     dwell = 0f,
                 )

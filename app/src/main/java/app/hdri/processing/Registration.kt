@@ -22,7 +22,7 @@ data class Prepared(
 internal data class Observation(val a: Int, val b: Int, val u: V3, val v: V3)
 
 /**
- * Rotation-only bundle refinement with an AR prior. Rejects matches requiring large scene
+ * Rotation-only bundle refinement with an orientation prior. Rejects matches requiring large scene
  * deformation.
  */
 internal object Registration {

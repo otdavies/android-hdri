@@ -222,7 +222,7 @@ class PipelineTest {
                     60.0,
                 )
             val frames =
-                Sphere.targets(min(lens.fovX, lens.fovY)).map { target ->
+                CoveragePlanner.targets(lens).map { target ->
                     val q = Q.look(target.yaw, target.pitch)
                     val pixels = FloatArray(lens.width * lens.height * 3)
                     for (y in 0 until lens.height) for (x in 0 until lens.width) {

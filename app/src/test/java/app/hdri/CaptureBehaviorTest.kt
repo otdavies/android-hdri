@@ -7,7 +7,7 @@ import org.junit.Test
 
 class CaptureBehaviorTest {
     @Test
-    fun autoCaptureAcceptsHandTremorAndTrackingJitterAtDifferentFrameRates() {
+    fun autoCaptureAcceptsHandTremorAtDifferentFrameRates() {
         for (fps in listOf(15, 30, 60)) {
             val gate = SteadyGate()
             var fired = false
@@ -15,10 +15,7 @@ class CaptureBehaviorTest {
                 val t = i.toDouble() / fps
                 val jitter = .32 * sin(t * 2 * PI * 8) + .1 * cos(t * 2 * PI * 13)
                 val q = Q.look(3.4 + jitter, .2 * sin(t * 31))
-                if (
-                    gate.update(1_000_000_000L + (t * 1e9).toLong(), q, 3.4 + jitter, true, .24) >=
-                        1.0
-                )
+                if (gate.update(1_000_000_000L + (t * 1e9).toLong(), q, 3.4 + jitter, true) >= 1.0)
                     fired = true
             }
             assertTrue("Handheld capture never fired at $fps fps", fired)
@@ -29,13 +26,13 @@ class CaptureBehaviorTest {
     fun aimWindowHasHysteresisButRejectsLostTrackingAndStaleFrames() {
         val gate = SteadyGate()
         repeat(13) { i ->
-            gate.update(1_000_000_000L + i * 30_000_000L, Q.look(4.4, 0.0), 4.4, true, 0.0)
+            gate.update(1_000_000_000L + i * 30_000_000L, Q.look(4.4, 0.0), 4.4, true)
         }
-        val before = gate.update(1_390_000_000, Q.look(4.4, 0.0), 4.4, true, 0.0)
-        val after = gate.update(1_420_000_000, Q.look(4.8, 0.0), 4.8, true, 0.0)
+        val before = gate.update(1_390_000_000, Q.look(4.4, 0.0), 4.4, true)
+        val after = gate.update(1_420_000_000, Q.look(4.8, 0.0), 4.8, true)
         assertTrue("An edge wobble should not reset the ring", after >= before && after > 0)
-        assertEquals(0.0, gate.update(2_000_000_000, Q.look(4.8, 0.0), 4.8, true, 0.0), 0.0)
-        assertEquals(0.0, gate.update(2_030_000_000, Q(), 0.0, false, 0.0), 0.0)
+        assertEquals(0.0, gate.update(2_000_000_000, Q.look(4.8, 0.0), 4.8, true), 0.0)
+        assertEquals(0.0, gate.update(2_030_000_000, Q(), 0.0, false), 0.0)
     }
 
     @Test
@@ -44,13 +41,8 @@ class CaptureBehaviorTest {
         repeat(120) { i ->
             val yaw = 7 * sin(i / 30.0 * 2 * PI)
             assertTrue(
-                gate.update(
-                    1_000_000_000L + i * 33_333_333L,
-                    Q.look(yaw, 0.0),
-                    abs(yaw),
-                    true,
-                    0.0,
-                ) < 1.0
+                gate.update(1_000_000_000L + i * 33_333_333L, Q.look(yaw, 0.0), abs(yaw), true) <
+                    1.0
             )
         }
     }
@@ -91,15 +83,14 @@ class CaptureBehaviorTest {
 
     @Test
     fun visualCorrectionsFollowScreenAxesAndDisableLevelingAtPoles() {
-        val g = AimGuide.from(Q(), Q.look(25.0, 15.0).rotate(V3.FORWARD), V3(-.3, 0.0, 0.0))
+        val g = AimGuide.from(Q(), Q.look(25.0, 15.0).rotate(V3.FORWARD))
         assertEquals(25f, g.yaw, .01f)
         assertEquals(15f, g.pitch, .01f)
         assertTrue(g.instruction.contains("right") && g.instruction.contains("up"))
-        assertTrue(g.positionInstruction.contains("left"))
-        val roll = AimGuide.from(Q.axis(V3(0.0, 0.0, Math.toRadians(20.0))), V3.FORWARD, V3.ZERO)
+        val roll = AimGuide.from(Q.axis(V3(0.0, 0.0, Math.toRadians(20.0))), V3.FORWARD)
         assertEquals(20f, roll.roll, .01f)
-        assertFalse(AimGuide.from(Q.look(0.0, 90.0), V3(0.0, 1.0, 0.0), V3.ZERO).canLevel)
-        assertTrue(abs(AimGuide.from(Q(), V3(0.0, 0.0, 1.0), V3.ZERO).yaw) > 179)
+        assertFalse(AimGuide.from(Q.look(0.0, 90.0), V3(0.0, 1.0, 0.0)).canLevel)
+        assertTrue(abs(AimGuide.from(Q(), V3(0.0, 0.0, 1.0)).yaw) > 179)
     }
 
     @Test

@@ -25,7 +25,7 @@ data class V3(val x: Double, val y: Double, val z: Double) {
     }
 }
 
-/** Camera-to-world quaternion. Camera axes are ARCore's +X right, +Y up, -Z forward. */
+/** Camera-to-world quaternion. Camera axes are +X right, +Y up, -Z forward. */
 data class Q(val x: Double = 0.0, val y: Double = 0.0, val z: Double = 0.0, val w: Double = 1.0) {
     operator fun times(b: Q) =
         Q(
@@ -104,37 +104,11 @@ object Sphere {
 
     fun uv(v: V3): Pair<Double, Double> =
         (atan2(v.x, -v.z) / (2 * PI) + .5) to (.5 - asin(v.unit().y.coerceIn(-1.0, 1.0)) / PI)
-
-    /** Ring spacing fits inside the smaller camera FOV, even with arbitrary handset roll. */
-    fun targets(minFov: Double): List<Target> {
-        require(minFov in 30.0..110.0)
-        // Leave overlap for a forgiving aim window as well as the seam crop.
-        val step = minFov * .50
-        val levels = ceil(90 / step).toInt()
-        val pitches =
-            listOf(0.0) +
-                (1 until levels).map { it * 90.0 / levels } +
-                listOf(90.0) +
-                (1 until levels).map { -it * 90.0 / levels } +
-                listOf(-90.0)
-        return buildList {
-            pitches.forEachIndexed { row, pitch ->
-                val n =
-                    if (abs(pitch) == 90.0) 1
-                    else ceil(360 * cos(Math.toRadians(pitch)) / step).toInt().coerceAtLeast(3)
-                for (i in 0 until n) {
-                    val j = if (row % 2 == 0) i else n - 1 - i
-                    add(Target(size, j * 360.0 / n, pitch))
-                }
-            }
-        }
-    }
 }
 
 enum class HoldReason {
     AIM,
     TRACKING,
-    POSITION,
     SETTLING,
     READY,
 }
@@ -142,11 +116,9 @@ enum class HoldReason {
 object CaptureTolerance {
     const val AIM_ENTER = 4.5
     const val AIM_EXIT = 6.0
-    const val POSITION_WARNING = .18
-    const val POSITION_LIMIT = .45
 }
 
-/** Evaluate a short pose envelope, never the noisy derivative of individual AR frames. */
+/** Evaluate a short pose envelope, never the noisy derivative of individual sensor readings. */
 class SteadyGate(private val dwellNanos: Long = 450_000_000) {
     private data class Sample(val time: Long, val rotation: Q)
 
@@ -171,13 +143,7 @@ class SteadyGate(private val dwellNanos: Long = 450_000_000) {
     }
 
     @Synchronized
-    fun update(
-        now: Long,
-        q: Q,
-        aimDegrees: Double,
-        tracking: Boolean,
-        translation: Double,
-    ): Double {
+    fun update(now: Long, q: Q, aimDegrees: Double, tracking: Boolean): Double {
         if (last != 0L && now <= last) return credit
         if (last != 0L && now - last > 250_000_000) reset()
         val dt = if (last == 0L) 0.0 else (now - last).toDouble() / dwellNanos
@@ -188,7 +154,6 @@ class SteadyGate(private val dwellNanos: Long = 450_000_000) {
         val blocked =
             when {
                 !tracking -> HoldReason.TRACKING
-                translation > CaptureTolerance.POSITION_LIMIT -> HoldReason.POSITION
                 !locked -> HoldReason.AIM
                 else -> null
             }

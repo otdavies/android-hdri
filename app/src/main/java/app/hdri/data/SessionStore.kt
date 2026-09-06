@@ -26,6 +26,7 @@ data class Capture(
     val lens: Lens,
     val exposures: List<Exposure>,
     val warnings: List<String> = emptyList(),
+    val poseSource: String = "arcore",
 )
 
 data class Project(
@@ -41,6 +42,7 @@ data class Project(
     val warnings: List<String> = emptyList(),
     val error: String? = null,
     val sample: Boolean = false,
+    val coverageVersion: Int = 0,
 )
 
 /**
@@ -141,6 +143,7 @@ class SessionStore(context: Context) {
                 .put("stage", p.stage)
                 .put("progress", p.progress)
                 .put("sample", p.sample)
+                .put("coverageVersion", p.coverageVersion)
                 .put("error", p.error ?: JSONObject.NULL)
                 .put("warnings", arr(p.warnings))
                 .put(
@@ -159,6 +162,7 @@ class SessionStore(context: Context) {
                                 .put("target", c.targetId)
                                 .put("rotation", quat(c.rotation))
                                 .put("position", vector(c.position))
+                                .put("poseSource", c.poseSource)
                                 .put("warnings", arr(c.warnings))
                                 .put(
                                     "lens",
@@ -226,6 +230,7 @@ class SessionStore(context: Context) {
                         c.optJSONArray("warnings")?.let { a ->
                             (0 until a.length()).map { a.getString(it) }
                         } ?: emptyList(),
+                        c.optString("poseSource", "arcore"),
                     )
                 },
                 j.getString("state"),
@@ -236,6 +241,7 @@ class SessionStore(context: Context) {
                 },
                 if (j.isNull("error")) null else j.getString("error"),
                 j.optBoolean("sample"),
+                j.optInt("coverageVersion", 0),
             )
         }
     }

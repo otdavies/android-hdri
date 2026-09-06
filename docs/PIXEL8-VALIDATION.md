@@ -1,6 +1,6 @@
 # Pixel 8 device acceptance
 
-Status: the user confirmed installation and UI work on Pixel 8, but reported excessive movement rejection during real photosphere capture. The handheld-capture update addresses that report; successful full real-world capture, stitching quality and performance still need phone verification. Record APK version/commit, Android build, ARCore version and actual results here.
+Status: installation/UI work and handheld capture improved on Pixel 8. The user then reported AR relocalization moving the assumed sphere center while pointing at sky, and excessive (74+) stops. The sky update uses continuous inertial orientation and compact camera-aware coverage. Physical validation of this change is pending.
 
 ## Installation and startup
 
@@ -16,7 +16,10 @@ Status: the user confirmed installation and UI work on Pixel 8, but reported exc
 - Capture a static outdoor sphere around one lens position. Verify all rings and both poles are captured with sufficient overlap and no fixed-point drift.
 - Check the camera2-reported shutter/ISO in the exported manifest: each bracket must have distinct measured exposures with no duplicate/mismatched timestamps.
 - Inspect the fixed daylight white balance and tone curve across bright/dark views. Compare projected features against stored intrinsics to detect camera stream crop differences.
-- Move during a bracket, walk away from the origin, cover the lens and pause tracking. Confirm auto-capture stops, rejects bad brackets and offers clear recovery.
+- Start while pointing at blank sky; capture the zenith, tilt back to a recognizable horizon feature, and repeat after several brackets. The targets must return to the same directions and never request walking or position correction.
+- Compare the initial number of stops with the old plan; record actual lens FOV and count. Resume an old unfinished project and verify saved photos remain while remaining stops decrease.
+- Move during a bracket: excessive angular movement should retry. Covering the lens or walking is no longer a tracking gate: the center is assumed fixed, so avoid walking and inspect resulting blur/parallax.
+- Complete a horizon loop and record yaw drift against a recognizable feature. Repeat over a longer capture; test the real camera-to-JPEG orientation and final seam.
 - Background the app halfway through a bracket. Reopen, match the reference and finish the sphere; no half-bracket may be counted.
 
 ## HDR and seams
