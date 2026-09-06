@@ -32,7 +32,23 @@ A fresh host replay of the supplied 41-direction / 205-photo capture completed i
 | Regenerable processing files retained by the prior replay | 412,754,558 | 412.8 MB |
 | Total prior replay storage | 536,680,532 | 536.7 MB |
 | Completed capture after automatic cleanup | 123,926,117 | 123.9 MB |
-| Finished exports and metadata, without sources | 34,325,970 | 34.3 MB |
+| Finished exports and metadata, without sources | 34,325,967 | 34.3 MB |
 | Exported OpenEXR, saved separately | 17,023,992 | 17.0 MB |
 
 The rebuilt JPEG is byte-identical to the prior replay. Both Radiance files decode to identical float pixels; their header branding differs. The reference OpenEXR decoder also recovers every pixel of the 4096 × 2048 HDR exactly. Savings vary with capture quality, subject detail and photo sizes. Peak working storage is still needed while stitching; cleanup reduces retained storage without lowering source or output quality.
+
+
+## Verified Preview 14
+
+[Install sphere Preview 14](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.14/sphere-0.1.0-preview.apk).
+[Actions run 34045902894](https://github.com/otdavies/android-hdri/actions/runs/34045902894) passed 28 JVM tests, Android lint and all 22 installed-APK tests in 50.247 seconds, followed by independent OpenEXR decoding. The exact signed candidate was installed twice and published without rebuilding. Its SHA-256 is `3e316d7444d0d86882a1a9ebd43e7c87d7069eae228779dae20086dc187173b1` (123,840,249 bytes).
+
+The first candidate was withheld when the new cleanup UI test exposed a dialog redraw race after a fast operation completed. The corrected UI captures immutable state for dialog content; the regression test remains in the release gate. Storage tests cover preserved outputs, interrupted deletion and retry, malformed filenames, missing outputs, concurrent file operations, paused checkpoints and older manifests. Lighting pixel checks still match the expected 90 / 109 / 123 gradient values exactly.
+
+[Release evidence](evidence/storage-release.json) and [reference EXR decoder results](evidence/sphere-exr.json) are retained here. These screenshots show the installed APK with synthetic fixtures, not the user's private room capture.
+
+![sphere home with green globe identity](evidence/storage-home.png)
+
+![Completed capture with prominent lighting-spheres access](evidence/storage-details.png)
+
+![Storage accounting after confirmed source-photo removal](evidence/storage-controls.png)

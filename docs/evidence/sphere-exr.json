@@ -1,0 +1,8 @@
+{
+  "decoder": "OpenEXR 3.3.3",
+  "floatChannelsExact": true,
+  "zipAndRawBlocks": true,
+  "partialBlockAndOrientation": true,
+  "highlightValue": 100000,
+  "dimValue": 1e-08
+}

@@ -1,0 +1,26 @@
+{
+  "release": "v0.1.0-preview.14",
+  "sourceSha": "c68c9f79a87c0d166b59add7b811a0464f98619f",
+  "actionsRun": 34045902894,
+  "apkBytes": 123840249,
+  "apkSha256": "3e316d7444d0d86882a1a9ebd43e7c87d7069eae228779dae20086dc187173b1",
+  "jvmTests": 28,
+  "installedApkTests": 22,
+  "installedSeconds": 50.247,
+  "lintErrors": 0,
+  "openExrReferenceDecoder": "3.3.3",
+  "exactFloatPixels": true,
+  "verificationArtifactSha256": "b78c6a619238e52bce98702ecdde8d00557cae74e7154206b062a294a45ed129",
+  "candidateArtifactSha256": "dd6d69307ddec3192b0fda7a0cde636ebc6eb7f6854bd634cfd48dcab2466d57",
+  "privateReplay": {
+    "sourcesBytes": 89600147,
+    "removedProcessingBytes": 412754558,
+    "previousTotalBytes": 536680532,
+    "completedTotalBytes": 123926117,
+    "afterSourceRemovalBytes": 34325967,
+    "exrExportBytes": 17023992,
+    "seconds": 49.368407291,
+    "decodedHdrUnchanged": true,
+    "sourceRemovalPreservedOutputHashes": true
+  }
+}
