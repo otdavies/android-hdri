@@ -1,5 +1,6 @@
 package app.hdri
 
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -16,7 +17,9 @@ class UiTest {
     private fun screenshot(name: String) {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val directory = File(context.getExternalFilesDir(null), "verification").apply { mkdirs() }
-        val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        // PixelCopy waits for the Compose root's rendered frame; semantics can update
+        // before a raw display screenshot, otherwise capturing the previous loading screen.
+        val bitmap = rule.onRoot().captureToImage().asAndroidBitmap()
         File(directory, name).outputStream().use {
             bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
         }

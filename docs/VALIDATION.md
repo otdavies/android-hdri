@@ -26,7 +26,20 @@ The GitHub Actions release gate runs six tests on an API 36 x86_64 AOSP emulator
 5. Launch the home screen without camera permission and verify capture/sample access.
 6. Navigate setup and quality controls, recording screenshots.
 
-CI result and measured sample statistics will be recorded after the run completes. Candidate APKs, checksums and device reports are retained by the workflow. Publication is gated on successful installed-APK verification.
+All six tests passed in [Actions run 34005750704](https://github.com/otdavies/android-hdri/actions/runs/34005750704), using source commit `5a479ee`. The signed APK was installed twice successfully, then tested and published without rebuilding. Candidate APKs, checksums and device reports are retained by the workflow. Publication is gated on successful installed-APK verification.
+
+The analytic sample produced a 2048 × 1024 HDR panorama from 22 directions, each with three 320 × 240 source exposures. Its measured results were:
+
+| Measurement | Result |
+| --- | --- |
+| Coverage on the 512 × 256 seam grid | 100% |
+| Median relative green-channel radiance error, after fitting one global exposure scale | 11.85% |
+| Pipeline runtime in this emulator, excluding sample generation | 6.847 seconds |
+| Complete installed-APK test suite | 6 passed in 16.597 seconds |
+
+These are synthetic fixture measurements, not Pixel 8 camera accuracy or speed claims. The projected texture and bright source were visually inspected in the exported preview. Setup screenshots confirmed legible, scrollable quality controls. Inspection also caught low-contrast Android status icons and a screenshot captured before the home screen had drawn; the follow-up UI fix sets explicit dark system-bar styling and captures the rendered Compose root.
+
+The first device run correctly blocked publication because OpenCV's Java batch `AlignMTB.process` binding did not populate its output list. Explicit `calculateShift` and `shiftMat` calls with owned output Mats fixed that failure; the same six-test gate then passed.
 
 ## Not yet validated
 
