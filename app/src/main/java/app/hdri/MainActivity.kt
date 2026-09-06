@@ -71,7 +71,9 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun SphereApp(vm: AppViewModel) {
-    val app by vm.state.collectAsStateWithLifecycle()
+    // Capture one immutable snapshot for dialog subcompositions. A delegated read
+    // can turn null between the outer condition and the dialog title redraw.
+    val app = vm.state.collectAsStateWithLifecycle().value
     val processing by ProcessingService.status.collectAsStateWithLifecycle()
     val activity = LocalActivity.current as ComponentActivity
     var quality by remember { mutableStateOf(Quality.DETAIL) }
@@ -473,7 +475,7 @@ private fun CaptureScreen(
 ) {
     val activity = LocalActivity.current as ComponentActivity
     val engine = remember(p.id) { CaptureEngine(activity, store, p) }
-    val state by engine.ui.collectAsStateWithLifecycle()
+    val state = engine.ui.collectAsStateWithLifecycle().value
     var gl by remember { mutableStateOf<GLSurfaceView?>(null) }
     val owner = LocalLifecycleOwner.current
     DisposableEffect(engine, owner) {
