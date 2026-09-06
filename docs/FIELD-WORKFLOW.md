@@ -34,7 +34,7 @@ EXR uses lossless ZIP compression; all output floats are read back and compared 
 
 Storage separates source photos, recoverable processing files, HDR master, preview, metadata and total. Abandoned timestamped JPEGs, partial outputs and stale duplicate masters are recoverable. Original-bundle export only includes declared source files and current outputs. Source deletion still requires confirmation and disables rebuilding. Home also exposes abandoned temporary-export cleanup and distinguishes capture data from installed app/native-library size.
 
-## Verification before device release
+## Verification
 
 - 32 JVM checks cover radiometry, EXR blocks and truncation, camera crop/preview inverses, planner coverage and existing capture behaviour.
 - Installed-APK gate requires 30 tests, including GPU diffuse/exposure checks, GPU field-of-view changes, ground-fill boundaries and pole continuity, cancelled and successful master migration, orphan cleanup, UI controls, and complete sample processing with the EXR master.
@@ -43,3 +43,11 @@ Storage separates source photos, recoverable processing files, HDR master, previ
 - Pixel 8 ultrawide stream negotiation, viewfinder alignment, focus and delivered JPEG calibration need a physical-phone check. Emulator tests cannot establish those hardware properties.
 
 Private photographs and rebuilt images are kept outside this public repository.
+
+### Published Preview 19
+
+[Release and APK](https://github.com/otdavies/android-hdri/releases/tag/v0.1.0-preview.19), from source `870315d8873b53731cab0727183895492ce753f3`. [GitHub run 34062450038](https://github.com/otdavies/android-hdri/actions/runs/34062450038) passed build, device and publication jobs. All 32 JVM tests passed; lint reported no errors and eight advisory warnings. The 30 installed-APK tests passed in 58.111 seconds. The independent OpenEXR 3.3.3 decoder confirmed exact FLOAT channels and ZIP/raw blocks.
+
+The GPU directional-grey fixture produced sRGB values 95, 118 and 136 for three sampled normals, exactly matching its analytical expectations. Actual rendered field-of-view changes passed at 0.5×, 1× and 4×. Screenshots of lighting controls, ground options and source-removal storage were reviewed.
+
+Published APK: 123,971,321 bytes; SHA-256 `14a81f33d58a66202e72641b798447eaae8533805201902ea5d879e3f3672504`. Pixel 8 physical lens validation remains outstanding.
