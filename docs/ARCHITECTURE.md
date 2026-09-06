@@ -1,11 +1,11 @@
 # Architecture
 
-- `CaptureEngine`: one ARCore shared session, Camera2 callback thread, OpenGL preview and gyroscope stream. Capturing requires valid tracking, correct aim, steady orientation and acceptable translation. The GL thread never decodes or writes a photo.
+- `CaptureEngine`: one ARCore shared session, Camera2 callback thread, OpenGL preview and a separate gyroscope thread. A short pose envelope tolerates hand tremor and fills the automatic shutter ring. Timestamped gyro rotations measure exposure motion independently of JPEG writes. Capture requires valid tracking and acceptable aim/translation; the GL thread never decodes or writes a photo. See `CAPTURE-UPDATE.md` for thresholds and recovery.
 - `SessionStore`: versioned JSON manifests through Android AtomicFile. A completed bracket appears in the manifest only after all timestamp-matched exposure files are durable. No network or external storage permission is needed.
 - `HdrPipeline`: reduced source decode → exposure alignment → one shared response calibration → radiance merge/checkpoints → overlap registration → coverage/seam selection → float multiband tiles → RGBE/JPEG/report.
 - `ProcessingService`: one active process, native work off the main thread, persistent notification, pause, thermal handling, storage checks, timeout handling and bounded wake lock. Retry validates HDR checkpoint fingerprints and restores each checkpoint's clipping, motion and bracket-alignment findings. Pausing leaves a dismissible notification with the saved state.
 - `AppViewModel`: lifecycle-retained navigation, asynchronous repository reads, SAF export with visible byte progress, and foreground-service state observation.
-- Compose screens: home, capture setup, live capture, processing/quality review, and interactive spherical preview.
+- Compose screens: home, capture setup, live capture, processing/quality review, and interactive spherical preview. `CaptureOverlay` provides directional vignettes/chevrons, screen-relative turn and pitch cues, optional leveling, and automatic shutter progress. The same composable is exercised by the emulator with supplied camera state.
 
 ## Coordinates and export conventions
 

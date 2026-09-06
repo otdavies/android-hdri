@@ -25,6 +25,7 @@ data class Capture(
     val position: V3,
     val lens: Lens,
     val exposures: List<Exposure>,
+    val warnings: List<String> = emptyList(),
 )
 
 data class Project(
@@ -158,6 +159,7 @@ class SessionStore(context: Context) {
                                 .put("target", c.targetId)
                                 .put("rotation", quat(c.rotation))
                                 .put("position", vector(c.position))
+                                .put("warnings", arr(c.warnings))
                                 .put(
                                     "lens",
                                     arr(
@@ -221,6 +223,9 @@ class SessionStore(context: Context) {
                                 it.getLong("timestamp"),
                             )
                         },
+                        c.optJSONArray("warnings")?.let { a ->
+                            (0 until a.length()).map { a.getString(it) }
+                        } ?: emptyList(),
                     )
                 },
                 j.getString("state"),

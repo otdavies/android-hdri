@@ -48,13 +48,13 @@ class GeometryTest {
         val gate = SteadyGate(500_000_000)
         var now = 1_000_000_000L
         repeat(8) {
-            gate.update(now, Q(), true, true, 0.0)
+            gate.update(now, Q(), 0.0, true, 0.0)
             now += 100_000_000
         }
-        assertEquals(1.0, gate.update(now, Q(), true, true, 0.0), 1e-8)
-        assertEquals(0.0, gate.update(now + 100_000_000, Q(), true, true, .2), 1e-8)
-        assertEquals(0.0, gate.update(now + 200_000_000, Q.look(10.0, 0.0), true, true, 0.0), 1e-8)
-        assertEquals(0.0, gate.update(now + 300_000_000, Q(), true, false, 0.0), 1e-8)
+        assertEquals(1.0, gate.update(now, Q(), 0.0, true, 0.0), 1e-8)
+        assertEquals(0.0, gate.update(now + 100_000_000, Q(), 0.0, true, .5), 1e-8)
+        assertEquals(0.0, gate.update(now + 200_000_000, Q.look(10.0, 0.0), 10.0, true, 0.0), 1e-8)
+        assertEquals(0.0, gate.update(now + 300_000_000, Q(), 0.0, false, 0.0), 1e-8)
     }
 
     @Test

@@ -23,7 +23,10 @@ class HdrPipeline(
 ) {
     private val dir = store.dir(project.id)
     private val cache = File(dir, "processed").apply { mkdirs() }
-    private val warnings = mutableListOf<String>()
+    private val warnings =
+        project.captures
+            .flatMap { c -> c.warnings.map { "Direction ${c.targetId+1}: $it" } }
+            .toMutableList()
     private val maxEdge = if (project.quality == Quality.DETAIL) 1280 else 800
 
     private fun load(c: Capture): List<Mat> {

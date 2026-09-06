@@ -27,9 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -494,96 +492,32 @@ private fun CaptureScreen(
             },
             modifier = Modifier.fillMaxSize(),
         )
-        Canvas(Modifier.fillMaxSize()) {
-            state.markers.forEach { m ->
-                val pos = Offset(m.x * size.width, m.y * size.height)
-                val color =
-                    if (m.complete) Lime.copy(alpha = .4f)
-                    else if (m.active) Lime else Color.White.copy(alpha = .7f)
-                drawCircle(Ink.copy(alpha = .7f), 17.dp.toPx(), pos)
-                drawCircle(color, if (m.complete) 5.dp.toPx() else 8.dp.toPx(), pos)
-                if (m.active) drawCircle(Lime, 17.dp.toPx(), pos, style = Stroke(1.5.dp.toPx()))
-            }
-            val center = Offset(size.width / 2, size.height / 2)
-            drawCircle(
-                Color.White.copy(alpha = .75f),
-                30.dp.toPx(),
-                center,
-                style = Stroke(2.dp.toPx()),
-            )
-            if (state.dwell > 0)
-                drawArc(
-                    Lime,
-                    -90f,
-                    360f * state.dwell,
-                    false,
-                    Offset(center.x - 35.dp.toPx(), center.y - 35.dp.toPx()),
-                    androidx.compose.ui.geometry.Size(70.dp.toPx(), 70.dp.toPx()),
-                    style = Stroke(4.dp.toPx()),
-                )
-        }
-        Column(
-            Modifier.align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .background(
-                    Brush.verticalGradient(listOf(Ink.copy(alpha = .9f), Color.Transparent))
-                )
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(leave) { Icon(Icons.Outlined.Close, "Save and leave capture") }
-                Text("Capture sphere", Modifier.weight(1f), fontWeight = FontWeight.Medium)
-                Text("${state.captured}/${state.total}", color = Lime)
-            }
-            if (!state.ready && state.error == null)
-                LinearProgressIndicator(Modifier.fillMaxWidth().padding(16.dp))
-        }
-        Column(
-            Modifier.align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(20.dp)
-                .fillMaxWidth()
-                .background(Ink.copy(alpha = .94f), RoundedCornerShape(24.dp))
-                .padding(22.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            if (state.needsAnchor && p.captures.isNotEmpty()) {
-                Photo(
-                    File(
-                        store.dir(p.id),
-                        p.captures.first().exposures[p.captures.first().exposures.size / 2].file,
-                    ),
-                    Modifier.fillMaxWidth().height(150.dp).clip(RoundedCornerShape(12.dp)),
-                )
-                Text("Reference photo · match this framing", color = Muted, fontSize = 12.sp)
-            }
-            Text(state.message, fontSize = 22.sp, fontWeight = FontWeight.Medium)
-            Text(state.detail, color = Muted, fontSize = 14.sp, lineHeight = 20.sp)
-            LinearProgressIndicator(
-                progress = {
-                    if (state.busy) state.bracket
-                    else state.captured.toFloat() / max(1, state.total)
-                },
-                modifier = Modifier.fillMaxWidth(),
-                color = Lime,
-            )
-            if (state.busy)
-                Text(
-                    "${(state.bracket*100).roundToInt()}% of this bracket saved",
-                    color = Lime,
-                    fontSize = 13.sp,
-                )
-            else if (state.needsAnchor)
-                PrimaryAction("Resume here", engine::resumeHere, enabled = state.ready)
-            else if (state.ready && state.dwell == 0f)
-                Text(
-                    if (abs(state.turn) > .15) if (state.turn > 0) "Turn right →" else "← Turn left"
-                    else "Align the dot, then hold still",
-                    color = Lime,
-                    fontSize = 13.sp,
-                )
-        }
+        CaptureOverlay(
+            state = state,
+            leave = leave,
+            captureNow = engine::captureNow,
+            resumeHere = engine::resumeHere,
+            reference =
+                if (state.needsAnchor && p.captures.isNotEmpty()) {
+                    {
+                        Photo(
+                            File(
+                                store.dir(p.id),
+                                p.captures
+                                    .first()
+                                    .exposures[p.captures.first().exposures.size / 2]
+                                    .file,
+                            ),
+                            Modifier.fillMaxWidth().height(135.dp).clip(RoundedCornerShape(12.dp)),
+                        )
+                        Text(
+                            "Reference photo · match this framing",
+                            color = Muted,
+                            fontSize = 12.sp,
+                        )
+                    }
+                } else null,
+        )
         if (state.error != null)
             AlertDialog(
                 onDismissRequest = {},

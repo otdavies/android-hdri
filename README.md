@@ -12,7 +12,7 @@ Google Play Services for AR must be installed before offline capture. The app ch
 
 1. Choose **New photosphere** and 2K / three exposures or 4K / five exposures.
 2. Stay at one physical point. Pivot around the main camera lens, keeping objects at least a metre away where possible.
-3. Align a guide dot with the ring and hold still. The app captures a bracket automatically and shows each exposure being saved.
+3. Follow the directional glow and arrows to bring a guide dot into the ring. Small hand wobbles are okay: the ring fills and captures a bracket automatically. Turn/tilt indicators and optional leveling help with framing; **Capture now** is a fallback when aligned.
 4. Complete the sky, horizon and ground. Processing starts automatically with visible stages and a foreground notification.
 5. Review any clipping, motion or alignment concerns, explore the sphere, then save the Radiance `.hdr` or photosphere JPEG.
 
@@ -49,4 +49,4 @@ Windows: use `gradlew.bat` with the same arguments. Local release builds use the
 
 The first commit copied the Android workflow from `otdavies/route`. Routine main pushes run unit tests and lint. A commit containing `[release]`, or **Actions → Android → Run workflow → release**, builds paired APKs once, verifies those exact candidates in an emulator, then publishes the same application APK. See [CI and signing](docs/CI.md).
 
-See [research and design](docs/RESEARCH.md), [architecture](docs/ARCHITECTURE.md), [validation results and screenshots](docs/VALIDATION.md), and [preview notes](docs/PREVIEW.md).
+See [handheld capture update](docs/CAPTURE-UPDATE.md), [research and design](docs/RESEARCH.md), [architecture](docs/ARCHITECTURE.md), [validation results and screenshots](docs/VALIDATION.md), and [preview notes](docs/PREVIEW.md).

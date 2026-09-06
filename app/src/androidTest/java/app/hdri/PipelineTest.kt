@@ -200,4 +200,97 @@ class PipelineTest {
             store.delete(p.id)
         }
     }
+
+    @Test
+    fun smoothRadianceFieldHasNoHorizontalBandsOrLongitudeSeam() {
+        assertTrue(OpenCVLoader.initLocal())
+        val directory = File(context.cacheDir, "smooth-sphere-test").apply { mkdirs() }
+        fun field(ray: V3) =
+            V3(
+                .7 + .16 * ray.y + .06 * ray.x,
+                1 + .25 * ray.y + .08 * ray.z,
+                1.5 + .2 * ray.y - .1 * ray.x,
+            )
+        try {
+            val lens =
+                Lens(
+                    160,
+                    120,
+                    160 / (2 * tan(Math.toRadians(50.0))),
+                    160 / (2 * tan(Math.toRadians(50.0))),
+                    80.0,
+                    60.0,
+                )
+            val frames =
+                Sphere.targets(min(lens.fovX, lens.fovY)).map { target ->
+                    val q = Q.look(target.yaw, target.pitch)
+                    val pixels = FloatArray(lens.width * lens.height * 3)
+                    for (y in 0 until lens.height) for (x in 0 until lens.width) {
+                        val rgb = field(q.rotate(lens.ray(x + .5, y + .5)))
+                        val i = (y * lens.width + x) * 3
+                        pixels[i] = rgb.z.toFloat()
+                        pixels[i + 1] = rgb.y.toFloat()
+                        pixels[i + 2] = rgb.x.toFloat()
+                    }
+                    val mat = Mat(lens.height, lens.width, CvType.CV_32FC3)
+                    val file = File(directory, "${target.id}.hdr")
+                    try {
+                        mat.put(0, 0, pixels)
+                        assertTrue(Imgcodecs.imwrite(file.path, mat))
+                    } finally {
+                        mat.release()
+                    }
+                    Prepared(Capture(target.id, q, V3.ZERO, lens, emptyList()), lens, file, file)
+                }
+            val seams = SphericalBlend.seams(frames, { _, _ -> }, {})
+            assertTrue(seams.labels.all { it >= 0 })
+            val result = File(directory, "smooth.hdr")
+            val jpeg = File(directory, "smooth.jpg")
+            SphericalBlend.render(frames, seams, 2048, result, jpeg, { _, _ -> }, {})
+            val hdr = Imgcodecs.imread(result.path, Imgcodecs.IMREAD_UNCHANGED)
+            try {
+                val pixels = FloatArray((hdr.total() * 3).toInt())
+                hdr.get(0, 0, pixels)
+                var previous = 0.0
+                var horizontalJump = 0.0
+                var longitudeJump = 0.0
+                var rowBias = 0.0
+                for (y in 2 until hdr.rows() - 2) {
+                    var residual = 0.0
+                    var count = 0
+                    for (x in 0 until hdr.cols() step 8) {
+                        val expected = field(Sphere.ray(x + .5, y + .5, hdr.cols(), hdr.rows())).y
+                        residual += pixels[(y * hdr.cols() + x) * 3 + 1] / expected - 1
+                        count++
+                    }
+                    residual /= count
+                    rowBias = max(rowBias, abs(residual))
+                    if (y > 2) horizontalJump = max(horizontalJump, abs(residual - previous))
+                    previous = residual
+                    val left = pixels[(y * hdr.cols()) * 3 + 1]
+                    val right = pixels[(y * hdr.cols() + hdr.cols() - 1) * 3 + 1]
+                    longitudeJump =
+                        max(longitudeJump, abs(left - right).toDouble() / max(left, right))
+                }
+                assertTrue("Artificial horizontal band: $horizontalJump", horizontalJump < .008)
+                assertTrue("Longitude seam: $longitudeJump", longitudeJump < .012)
+                assertTrue("A dark or bright zone was introduced: $rowBias", rowBias < .035)
+                val evidence =
+                    File(context.getExternalFilesDir(null), "verification").apply { mkdirs() }
+                File(evidence, "smooth-field.json")
+                    .writeText(
+                        JSONObject()
+                            .put("maxAdjacentRowRelativeErrorChange", horizontalJump)
+                            .put("maxLongitudeRelativeDifference", longitudeJump)
+                            .put("maxRowRelativeBias", rowBias)
+                            .toString(2)
+                    )
+                jpeg.copyTo(File(evidence, "smooth-field.jpg"), overwrite = true)
+            } finally {
+                hdr.release()
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
 }

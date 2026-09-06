@@ -1,6 +1,6 @@
 # Pixel 8 device acceptance
 
-Status: **physical hardware validation is pending**. Record APK version/commit, Android build, ARCore version and actual results here. Emulator success does not validate this checklist.
+Status: the user confirmed installation and UI work on Pixel 8, but reported excessive movement rejection during real photosphere capture. The handheld-capture update addresses that report; successful full real-world capture, stitching quality and performance still need phone verification. Record APK version/commit, Android build, ARCore version and actual results here.
 
 ## Installation and startup
 
@@ -9,6 +9,9 @@ Status: **physical hardware validation is pending**. Record APK version/commit, 
 - Start real capture. Confirm the main rear camera negotiates AR + JPEG streams, preview orientation matches the phone, dots align with real objects and no background camera access continues after leaving.
 
 ## Capture quality
+
+- With the handheld update, align a dot while breathing normally. Confirm automatic capture fires without tapping and without trying to be perfectly motionless. Follow horizontal/vertical arrows, try a rolled phone, and capture both poles; leveling is optional.
+- Make a large shake during a bracket. Confirm it automatically settles for another attempt, with an inline explanation. Small motion should keep the photos and preserve a review finding when appropriate.
 
 - Capture a static outdoor sphere around one lens position. Verify all rings and both poles are captured with sufficient overlap and no fixed-point drift.
 - Check the camera2-reported shutter/ISO in the exported manifest: each bracket must have distinct measured exposures with no duplicate/mismatched timestamps.

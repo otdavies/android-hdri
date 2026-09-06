@@ -108,7 +108,8 @@ object Sphere {
     /** Ring spacing fits inside the smaller camera FOV, even with arbitrary handset roll. */
     fun targets(minFov: Double): List<Target> {
         require(minFov in 30.0..110.0)
-        val step = minFov * .58
+        // Leave overlap for a forgiving aim window as well as the seam crop.
+        val step = minFov * .50
         val levels = ceil(90 / step).toInt()
         val pitches =
             listOf(0.0) +
@@ -130,30 +131,81 @@ object Sphere {
     }
 }
 
-class SteadyGate(private val dwellNanos: Long = 650_000_000) {
-    private var since = 0L
-    private var last = 0L
-    private var previous: Q? = null
+enum class HoldReason {
+    AIM,
+    TRACKING,
+    POSITION,
+    SETTLING,
+    READY,
+}
 
+object CaptureTolerance {
+    const val AIM_ENTER = 4.5
+    const val AIM_EXIT = 6.0
+    const val POSITION_WARNING = .18
+    const val POSITION_LIMIT = .45
+}
+
+/** Evaluate a short pose envelope, never the noisy derivative of individual AR frames. */
+class SteadyGate(private val dwellNanos: Long = 450_000_000) {
+    private data class Sample(val time: Long, val rotation: Q)
+
+    private val samples = ArrayDeque<Sample>()
+    private var last = 0L
+    private var credit = 0.0
+    private var locked = false
+    var reason = HoldReason.AIM
+        private set
+
+    var movementDegrees = 0.0
+        private set
+
+    @Synchronized
     fun reset() {
-        since = 0L
         last = 0L
-        previous = null
+        credit = 0.0
+        locked = false
+        samples.clear()
+        movementDegrees = 0.0
+        reason = HoldReason.AIM
     }
 
-    fun update(now: Long, q: Q, aligned: Boolean, tracking: Boolean, translation: Double): Double {
-        val dt = (now - last) / 1e9
-        val speed =
-            previous?.let { if (dt > 0) q.angle(it) / dt else Double.POSITIVE_INFINITY }
-                ?: Double.POSITIVE_INFINITY
-        previous = q
+    @Synchronized
+    fun update(
+        now: Long,
+        q: Q,
+        aimDegrees: Double,
+        tracking: Boolean,
+        translation: Double,
+    ): Double {
+        if (last != 0L && now <= last) return credit
+        if (last != 0L && now - last > 250_000_000) reset()
+        val dt = if (last == 0L) 0.0 else (now - last).toDouble() / dwellNanos
         last = now
-        if (!aligned || !tracking || translation > .12 || speed > 2.0) {
-            since = 0
+        locked =
+            tracking &&
+                aimDegrees <= if (locked) CaptureTolerance.AIM_EXIT else CaptureTolerance.AIM_ENTER
+        val blocked =
+            when {
+                !tracking -> HoldReason.TRACKING
+                translation > CaptureTolerance.POSITION_LIMIT -> HoldReason.POSITION
+                !locked -> HoldReason.AIM
+                else -> null
+            }
+        if (blocked != null) {
+            credit = 0.0
+            samples.clear()
+            reason = blocked
             return 0.0
         }
-        if (since == 0L) since = now
-        return ((now - since).toDouble() / dwellNanos).coerceIn(0.0, 1.0)
+        samples.addLast(Sample(now, q.normalized()))
+        while (samples.size > 1 && now - samples.first().time > 300_000_000) samples.removeFirst()
+        movementDegrees = samples.maxOf { q.angle(it.rotation) }
+        val settled = movementDegrees <= 2.2 && now - samples.first().time >= 100_000_000
+        // Brief wobbles gently unwind the ring instead of repeatedly sending it back to zero.
+        credit = (credit + if (settled) dt else -dt * .6).coerceIn(0.0, 1.0)
+        reason = if (credit >= 1.0) HoldReason.READY else HoldReason.SETTLING
+        return credit
     }
 }
 
