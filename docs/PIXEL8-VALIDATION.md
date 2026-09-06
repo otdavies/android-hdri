@@ -1,6 +1,6 @@
 # Pixel 8 device acceptance
 
-Status: installation/UI work and handheld capture improved on Pixel 8. The user then reported AR relocalization moving the assumed sphere center while pointing at sky, and excessive (74+) stops. The sky update uses continuous inertial orientation and compact camera-aware coverage. Physical validation of this change is pending.
+Status: the user can complete full captures on Pixel 8 using inertial orientation and the compact camera-aware coverage plan. The current acceptance concern is reconstructed image quality: brightness differences, grey patches and geometric tears. The supplied fast capture is representative average-to-good handheld input. The latest processor has been evaluated using source replays and installed-app tests; its physical Pixel 8 timing and visual acceptance still need user evaluation.
 
 ## Installation and startup
 
@@ -13,12 +13,12 @@ Status: installation/UI work and handheld capture improved on Pixel 8. The user 
 - With the handheld update, align a dot while breathing normally. Confirm automatic capture fires without tapping and without trying to be perfectly motionless. Follow horizontal/vertical arrows, try a rolled phone, and capture both poles; leveling is optional.
 - Make a large shake during a bracket. Confirm it automatically settles for another attempt, with an inline explanation. Small motion should keep the photos and preserve a review finding when appropriate.
 
-- Capture a static outdoor sphere around one lens position. Verify all rings and both poles are captured with sufficient overlap and no fixed-point drift.
+- Capture a static outdoor sphere while turning with the feet and tilting the phone normally. The optical centre is expected to move on an orbit around the person. Verify all rings and both poles have sufficient overlap and the guidance does not request position corrections.
 - Check the camera2-reported shutter/ISO in the exported manifest: each bracket must have distinct measured exposures with no duplicate/mismatched timestamps.
 - Inspect the fixed daylight white balance and tone curve across bright/dark views. Compare projected features against stored intrinsics to detect camera stream crop differences.
 - Start while pointing at blank sky; capture the zenith, tilt back to a recognizable horizon feature, and repeat after several brackets. The targets must return to the same directions and never request walking or position correction.
 - Compare the initial number of stops with the old plan; record actual lens FOV and count. Resume an old unfinished project and verify saved photos remain while remaining stops decrease.
-- Move during a bracket: excessive angular movement should retry. Covering the lens or walking is no longer a tracking gate: the center is assumed fixed, so avoid walking and inspect resulting blur/parallax.
+- Move during a bracket: excessive angular movement should retry. Between-view translation from normal turning is supported input and must be handled in reconstruction. Orientation tracking does not measure camera translation; a stored zero position is a placeholder, not evidence of a fixed optical centre.
 - Complete a horizon loop and record yaw drift against a recognizable feature. Repeat over a longer capture; test the real camera-to-JPEG orientation and final seam.
 - Background the app halfway through a bracket. Reopen, match the reference and finish the sphere; no half-bracket may be counted.
 
@@ -37,4 +37,4 @@ Status: installation/UI work and handheld capture improved on Pixel 8. The user 
 - Test denial of notification permission; progress must remain visible in-app. Verify the notification opens the app, pause works and the foreground service stops on completion/failure.
 - Test font scaling and TalkBack on setup, processing, quality review and export controls.
 
-The hardest pending quality work is RAW sensor reconstruction, camera-specific calibration, reliable automatic relocalization for resumed captures and dense correction of parallax. Keep failures and representative source bundles for the next iteration.
+The hardest pending quality work is reliable correspondence and structure preservation around weak or repetitive seams, occlusions, resumed-capture alignment and camera-specific radiometry. RAW reconstruction remains a possible later camera-path improvement. Keep representative source bundles and assess visible edges as well as numerical fitting errors; additional aiming pauses are not a solution to ordinary between-view parallax.

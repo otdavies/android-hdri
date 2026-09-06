@@ -1,0 +1,85 @@
+{
+  "sourceSha": "db2f5723c20cb6dee2adad16a3614f62a109cf8f",
+  "release": "v0.1.0-preview.18",
+  "actionsRun": 34054299399,
+  "buildJob": 101543243732,
+  "deviceJob": 101543660702,
+  "publishJob": 101544177749,
+  "apkSha256": "b94fbf8e36481254ae9a6398b2bbd9d5ed00965e9f365d9b2a7f01f95f0b9922",
+  "apkBytes": 123856633,
+  "deviceArtifactSha256": "8258b6110d8c4cf171e32cdc723283a6e04411be77a123b5c5d798795414f9be",
+  "jvmTests": 28,
+  "lintErrors": 0,
+  "installedTests": 26,
+  "installedTestSeconds": 58.645,
+  "device": "API 36 x86_64 AOSP emulator",
+  "orbitWithheldDegrees": {
+    "medianBefore": 2.9873900376596425,
+    "medianAfter": 0.07414573826910967,
+    "p90Before": 4.331744483905395,
+    "p90After": 0.1311737345043582
+  },
+  "exr": {
+    "decoder": "OpenEXR 3.3.3",
+    "floatChannelsExact": true,
+    "zipAndRawBlocks": true,
+    "partialBlockAndOrientation": true,
+    "highlightValue": 100000,
+    "dimValue": 1e-08
+  },
+  "smoothField": {
+    "maxAdjacentRowRelativeErrorChange": 0.0023130834809707984,
+    "maxLongitudeRelativeDifference": 0.009900990099009901,
+    "maxRowRelativeBias": 0.01359064419083412
+  },
+  "lighting": {
+    "diffuseGradient": [
+      {
+        "normalY": -0.6,
+        "expectedRed": 90,
+        "renderedRed": 90
+      },
+      {
+        "normalY": 0,
+        "expectedRed": 109,
+        "renderedRed": 109
+      },
+      {
+        "normalY": 0.6,
+        "expectedRed": 123,
+        "renderedRed": 123
+      }
+    ],
+    "rotation": [
+      1,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      1
+    ],
+    "cpuDiffuseNorth": 1.5995443,
+    "cpuDiffuseSouth": 0.40074894
+  },
+  "syntheticPipeline": {
+    "durationSeconds": 10.727,
+    "coverage": 1,
+    "medianRelativeRadianceError": 0.05980941324085502,
+    "sessionId": "753d1f10-23c3-4488-ab3e-b2498c1f963c"
+  },
+  "privateCaptureReplay": {
+    "daylightFullCoverage": true,
+    "detailFullCoverage": true,
+    "javaHeapMiB": 192,
+    "nativeAllocationsSeparate": true,
+    "finalDaylightHostSeconds": 40.357920818,
+    "finalDaylightExrExportSeconds": 0.788178746,
+    "outputsIdenticalAfterMemoryChanges": true,
+    "hostOpenCV": "4.9.0",
+    "androidOpenCV": "4.12.0",
+    "pixel8TimingMeasured": false
+  }
+}

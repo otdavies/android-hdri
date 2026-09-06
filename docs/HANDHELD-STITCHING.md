@@ -96,3 +96,19 @@ A constrained replay (`--heap-mib 192`) exposed an unnecessary all-view gradient
 The larger detail capture additionally exposed whole-image Java copies in the float checkpoint reader. It now streams at most 64 rows at a time into the native image. The full 4K capture also completes under the 192 MiB Java heap limit with byte-identical JPEG and HDR results. The installed lossless round-trip fixture spans multiple complete row blocks and a partial final block, including radiance values above the half-float range.
 
 Installed-APK testing also exposed a native DIS cleanup crash when matching exited before its first flow calculation. Cleanup now avoids that uninitialized path, input checkpoints are validated as float RGB, and an installed test exercises empty input and early cancellation. The registration fixture now supplies a real float checkpoint to the HDR-detail stage. Publication still requires the complete installed-app suite, including these paths.
+
+## Verified Preview 18
+
+[Install the signed APK](https://github.com/otdavies/android-hdri/releases/download/v0.1.0-preview.18/sphere-0.1.0-preview.apk), then choose **Rebuild from saved photos** on an existing capture whose sources are retained.
+
+- Source: `db2f5723c20cb6dee2adad16a3614f62a109cf8f`.
+- [Actions run 34054299399](https://github.com/otdavies/android-hdri/actions/runs/34054299399): successful build, device verification and publication of the same APK.
+- 28 JVM tests; no lint errors; **26 installed-APK tests passed in 58.645 seconds** on API 36 x86_64 AOSP.
+- OpenEXR 3.3.3 independently verified exact float channels, HDR range, compressed/raw ZIP blocks and image orientation.
+- The physical-orbit fixture passed on Android: withheld-landmark median 2.987° → 0.074°, p90 4.332° → 0.131°.
+- Analytic full-sphere fixture: full coverage, median relative radiance error 5.98%, 10.727 seconds of emulator processing. This is a small synthetic fixture, not a real-capture speed claim.
+- Final-source daylight replay: 40.36 host seconds with a 192 MiB Java heap cap; EXR export 0.79 seconds. Earlier individual runs were 37–38 seconds. All produced identical JPEG/HDR output; this is not a controlled speedup measurement or a Pixel 8 benchmark.
+
+APK SHA-256: `b94fbf8e36481254ae9a6398b2bbd9d5ed00965e9f365d9b2a7f01f95f0b9922` (123,856,633 bytes). The GitHub asset digest matches this value. The device verification archive was downloaded and its SHA-256 checked before inspecting its measurements and rendered lighting screen.
+
+[Machine-readable release evidence](evidence/handheld-preview18.json) contains the release identifiers and checks. Private room photographs and source bundles are not included in this public repository.

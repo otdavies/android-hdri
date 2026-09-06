@@ -1,6 +1,6 @@
 # Validation record · 0.1.0
 
-Latest implementation and measurements: [handheld stitching update](STITCHING-UPDATE.md). Earlier capture evidence: [inertial guidance](SKY-CAPTURE.md).
+Latest implementation and verified release: [handheld radiometry, parallax and seams](HANDHELD-STITCHING.md). Earlier processing measurements: [stitching update](STITCHING-UPDATE.md). Earlier capture evidence: [inertial guidance](SKY-CAPTURE.md).
 
 The latest [handheld capture update](CAPTURE-UPDATE.md#verified-release) adds forgiving automatic capture, directional guidance, and a continuous sample light field. Preview 7 passed 16 JVM tests and 8 installed-APK tests; its screenshots, renderer continuity measurements and APK link are recorded there. The original preview baseline below is retained for reference.
 
