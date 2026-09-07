@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.*
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.*
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import app.hdri.core.LightingExposure
 import java.io.File
 import java.util.Locale
 import kotlinx.coroutines.*
@@ -35,11 +36,12 @@ internal fun ViewerScreen(
     var progress by remember { mutableFloatStateOf(0f) }
     var exposure by rememberSaveable(file.path) { mutableFloatStateOf(0f) }
     var probes by rememberSaveable(file.path) { mutableStateOf(true) }
-    var linear by rememberSaveable(file.path) { mutableStateOf(true) }
+    var linear by rememberSaveable(file.path) { mutableStateOf(false) }
     var reference by rememberSaveable(file.path) { mutableStateOf("Grey reference") }
     var backdrop by rememberSaveable(file.path) { mutableStateOf(false) }
     var zoom by rememberSaveable(file.path) { mutableFloatStateOf(1f) }
     var attempt by remember { mutableIntStateOf(0) }
+    val cameraScale = LightingExposure.validCapture(captureExposure)
     LaunchedEffect(file, attempt) {
         failure = null
         ready = false
@@ -116,8 +118,8 @@ internal fun ViewerScreen(
                             it.background = backdrop
                             it.exposureScale =
                                 when (reference) {
-                                    "Capture exposure" -> captureExposure
-                                    "HDR 1×" -> 1f
+                                    "Capture exposure" -> cameraScale
+                                    "Scene 1×" -> light.sceneScale
                                     else -> null
                                 }
                             if (it.zoomFactor != zoom) it.setViewZoom(zoom)
@@ -189,12 +191,12 @@ internal fun ViewerScreen(
                     label = { Text("Meter grey") },
                 )
                 FilterChip(
-                    reference == "HDR 1×",
-                    { reference = "HDR 1×" },
-                    label = { Text("HDR 1×") },
+                    reference == "Scene 1×",
+                    { reference = "Scene 1×" },
+                    label = { Text("Scene 1×") },
                 )
             }
-            if (captureExposure != null)
+            if (cameraScale != null)
                 FilterChip(
                     reference == "Capture exposure",
                     { reference = "Capture exposure" },
@@ -213,15 +215,15 @@ internal fun ViewerScreen(
             Slider(exposure, { exposure = it }, valueRange = -8f..8f, steps = 63, enabled = ready)
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Reference sRGB", fontSize = 14.sp)
+                    Text("Smooth highlights", fontSize = 14.sp)
                     Text(
-                        if (linear) "18% linear grey maps to 46% sRGB value"
-                        else "Reinhard tone mapping · compresses highlights and midtones",
+                        if (linear) "Reference sRGB · values above display white clip"
+                        else "Soft highlight roll-off · preserves midtones and colour ratios",
                         color = Muted,
                         fontSize = 11.sp,
                     )
                 }
-                Switch(linear, { linear = it }, enabled = ready)
+                Switch(!linear, { linear = !it }, enabled = ready)
             }
             if (probes)
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -229,7 +231,12 @@ internal fun ViewerScreen(
                     Switch(backdrop, { backdrop = it }, enabled = ready)
                 }
             Text(
-                "${reference}. Both spheres and the environment share one exposure. Grey is 18% reflectance; captured lighting is relative, not measured lux.",
+                (when (reference) {
+                    "Scene 1×" -> "Scene metered to middle grey."
+                    "Capture exposure" -> "Median capture exposure."
+                    else -> "Diffuse-light meter · −0.25 EV viewing adjustment."
+                }) +
+                    " Both spheres and the environment share one exposure. Grey is 18% reflectance. Display settings do not change the HDR export.",
                 color = Muted,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,

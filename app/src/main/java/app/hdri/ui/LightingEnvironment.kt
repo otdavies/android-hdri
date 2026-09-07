@@ -1,5 +1,6 @@
 package app.hdri.ui
 
+import app.hdri.core.LightingExposure
 import app.hdri.core.LightingMap
 import app.hdri.processing.EnvironmentIO
 import java.io.File
@@ -11,6 +12,7 @@ internal data class LightingEnvironment(
     val reflection: LightingMap,
     val diffuse: LightingMap,
     val scale: Float,
+    val sceneScale: Float = LightingExposure.scene(reflection),
 ) {
     companion object {
         fun load(file: File, progress: (String, Float) -> Unit): LightingEnvironment {
@@ -64,7 +66,7 @@ internal data class LightingEnvironment(
                     diffuse,
                     // Meter the light received by a diffuse reference, not the raw
                     // panorama's arithmetic mean (which is dominated by light sources).
-                    (1.0 / diffuse.geometricMeanLuminance().coerceAtLeast(1e-12)).toFloat(),
+                    LightingExposure.grey(diffuse),
                 )
             } finally {
                 source.release()

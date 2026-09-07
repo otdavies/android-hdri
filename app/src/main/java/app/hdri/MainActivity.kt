@@ -455,14 +455,55 @@ private fun Setup(
     selectDensity: (CoverageDensity) -> Unit,
 ) {
     val context = LocalContext.current
-    val cameras by
-        produceState<List<app.hdri.capture.CameraChoice>?>(null) {
-            value =
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    runCatching { app.hdri.capture.CameraCatalog.discover(context) }
-                        .getOrDefault(emptyList())
-                }
+    var cameraAttempt by remember { mutableIntStateOf(0) }
+    var lensDetails by remember { mutableStateOf(false) }
+    val cameraPermission =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            cameraAttempt++
         }
+    val owner = LocalLifecycleOwner.current
+    DisposableEffect(owner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) cameraAttempt++
+        }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer) }
+    }
+    val cameraScan by
+        produceState<CameraScan?>(null, cameraAttempt) {
+            value = null
+            value = withContext(Dispatchers.IO) { CameraCatalog.inspect(context) }
+        }
+    val cameras = cameraScan?.choices
+    if (lensDetails)
+        AlertDialog(
+            onDismissRequest = { lensDetails = false },
+            title = { Text("Camera lens details") },
+            text = {
+                androidx.compose.foundation.text.selection.SelectionContainer {
+                    Text(
+                        cameraScan?.diagnostics?.joinToString("\n\n") ?: "Checking cameras…",
+                        Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState()),
+                        fontSize = 12.sp,
+                    )
+                }
+            },
+            confirmButton = { TextButton({ lensDetails = false }) { Text("Done") } },
+            dismissButton = {
+                TextButton({
+                    context
+                        .getSystemService(android.content.ClipboardManager::class.java)
+                        .setPrimaryClip(
+                            android.content.ClipData.newPlainText(
+                                "sphere camera details",
+                                cameraScan?.diagnostics?.joinToString("\n") ?: "Checking cameras",
+                            )
+                        )
+                }) {
+                    Text("Copy details")
+                }
+            },
+        )
     val selectedLens =
         cameras?.firstOrNull { it.key == cameraKey }
             ?: cameras?.firstOrNull { cameraKey == "main" && it.label.startsWith("Main") }
@@ -540,9 +581,23 @@ private fun Setup(
                 label = { Text(camera.label) },
             )
         }
-        if (cameras == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (cameraScan == null) LinearProgressIndicator(Modifier.fillMaxWidth())
+        if (cameraScan?.permissionRequired == true) {
+            Text(
+                "Allow camera access to find the ultrawide and other lenses.",
+                color = Muted,
+                fontSize = 13.sp,
+            )
+            OutlinedButton({ cameraPermission.launch(Manifest.permission.CAMERA) }) {
+                Text("Allow camera access")
+            }
+        } else
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton({ cameraAttempt++ }) { Text("Refresh lenses") }
+                TextButton({ lensDetails = true }) { Text("Lens details") }
+            }
         Text(
-            "Wider lenses need fewer stops. Only lenses with manual HDR controls and geometric correction are offered. A lens stays fixed for the whole capture.",
+            "Wider lenses need fewer stops. Ultrawide uses Android's zoom-out control where available. Direct options select a physical camera. Zoom and calibration are checked before capture.",
             color = Muted,
             fontSize = 13.sp,
         )

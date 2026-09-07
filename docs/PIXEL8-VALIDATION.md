@@ -44,5 +44,12 @@ The hardest pending quality work is reliable correspondence and structure preser
 - Choose Ultrawide in New photosphere. Check that its actual view is wider, the physical lens does not switch, and dots stay on the preview features while tilting. Capture a main-lens and ultrawide sphere from the same area and inspect straight lines and exposure matching. Unsupported stream combinations should display an error with the main-lens recovery option.
 - Compare Compact and Most overlap stop counts. Check focus/settling and auto-capture with both; no stricter steadiness threshold is introduced.
 - Try Fill below me on a textured floor: no straight-down dot, no feet in the final cap, and approximate ground is labelled. Check sky and normal coverage holes still require capture.
-- In Lighting spheres, compare Meter grey, Capture exposure, HDR 1×, ±1 EV and the environment background. Explore HDR should pinch smoothly, zoom buttons agree, and reset returns to 1×.
+- In Lighting spheres, compare Meter grey, Capture exposure, Scene 1×, ±1 EV and the environment background. Explore HDR should pinch smoothly, zoom buttons agree, and reset returns to 1×.
 - After a 4K build, inspect the master/preview breakdown. Convert formats, cancel a conversion, export both formats and remove sources. Viewing/export must survive cleanup and restart. Source removal must disable rebuild. Android Settings includes installed code in addition to capture data.
+
+### Exposure and ultrawide follow-up
+
+- Default **Smooth highlights** should show detail in chrome and the environment with only a small grey-level change. Toggle it off to inspect reference sRGB clipping. Exposure controls remain shared by both materials and the environment.
+- **Scene 1×** should show a normally exposed environment, including older captures with large numeric radiance; it must not turn an ordinary room uniformly white.
+- After camera permission, look for **Ultrawide · 0.5×** (the label follows Android's actual minimum). Prefer that logical option first; direct physical options remain available. **Lens details → Copy details** includes zoom ranges and discovery decisions if the lens is still missing.
+- Compare framing at the same pose between main and ultrawide. Confirm the ultrawide's wider preview agrees with target markers, requires fewer stops, and keeps the same crop through each bracket. A rejected/ignored zoom or hardware lens switch must produce a visible error instead of a corrupted mixed-lens sphere.

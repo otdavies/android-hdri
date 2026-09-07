@@ -6,6 +6,20 @@ import org.junit.Test
 
 class CameraGeometryTest {
     @Test
+    fun zoomOutUsesTheOneTimesCalibrationBeforePostZoomAspectCropping() {
+        val main = Lens(4000, 3000, 2800.0, 2820.0, 2070.0, 1440.0)
+        val zoomed = CameraGeometry.zoom(main, .5)
+        val wide = CameraGeometry.crop(zoomed, 0.0, 0.0, 4000.0, 3000.0, 1920, 1080)
+        assertEquals(672.0, wide.fx, 1e-9)
+        assertEquals(976.8, wide.cx, 1e-9)
+        assertEquals(525.6, wide.cy, 1e-9)
+        assertTrue(wide.fovX > 109)
+        val roundTrip = CameraGeometry.zoom(zoomed, 2.0)
+        assertEquals(main, roundTrip)
+        assertThrows(IllegalArgumentException::class.java) { CameraGeometry.zoom(main, Double.NaN) }
+    }
+
+    @Test
     fun cropKeepsOffCentreCalibrationAndPreviewIsInvertibleAtEveryDisplayRotation() {
         val sensor = Lens(4000, 3000, 2200.0, 2180.0, 2070.0, 1440.0)
         val crop = CameraGeometry.crop(sensor, 100.0, 200.0, 3600.0, 2500.0, 1920, 1080)

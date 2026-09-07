@@ -272,7 +272,17 @@ vec3 light(sampler2D t,vec2 dims,vec3 d) {
 }
 vec3 display(vec3 radiance) {
     vec3 c=max(radiance*gain,vec3(0.));
-    c=linearDisplay?clamp(c,0.,1.):c/(vec3(1.)+c);
+    if(linearDisplay) c=clamp(c,0.,1.);
+    else {
+        // Preserve midtones and RGB ratios. Roll off only values above the shoulder;
+        // unlike per-channel Reinhard this does not darken ordinary 18% grey.
+        float peak=max(c.r,max(c.g,c.b));
+        if(peak>.25) {
+            float excess=peak-.25;
+            float mapped=.25+.75*excess/(.75+excess);
+            c*=mapped/peak;
+        }
+    }
     return mix(12.92*c,1.055*pow(c,vec3(1./2.4))-.055,step(vec3(.0031308),c));
 }
 void main() {

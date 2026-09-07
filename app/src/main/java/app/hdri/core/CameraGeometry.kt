@@ -4,6 +4,17 @@ import kotlin.math.*
 
 /** Pinhole stream cropping and a shared preview/marker transform. */
 object CameraGeometry {
+    /** Zoom about the stream centre, retaining a calibrated off-centre principal point. */
+    fun zoom(sensor: Lens, ratio: Double): Lens {
+        require(ratio.isFinite() && ratio > 0)
+        return sensor.copy(
+            fx = sensor.fx * ratio,
+            fy = sensor.fy * ratio,
+            cx = sensor.width * .5 + (sensor.cx - sensor.width * .5) * ratio,
+            cy = sensor.height * .5 + (sensor.cy - sensor.height * .5) * ratio,
+        )
+    }
+
     fun crop(
         sensor: Lens,
         left: Double,

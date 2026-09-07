@@ -98,7 +98,10 @@ class LightingViewerTest {
         fun verify(multiplier: Double, linear: Boolean) {
             val expectedRed = run {
                 val value = 2 * light.scale * multiplier
-                val mapped = if (linear) value.coerceIn(0.0, 1.0) else value / (1 + value)
+                val peak = 5 * light.scale * multiplier
+                val factor =
+                    if (peak <= .25) 1.0 else (.25 + .75 * (peak - .25) / (peak + .5)) / peak
+                val mapped = if (linear) value.coerceIn(0.0, 1.0) else value * factor
                 ((if (mapped <= .0031308) mapped * 12.92 else 1.055 * mapped.pow(1 / 2.4) - .055) *
                         255)
                     .roundToInt()
@@ -122,7 +125,11 @@ class LightingViewerTest {
                     for (c in 0..2) {
                         var value =
                             floatArrayOf(2f, 3f, 5f)[c] * light.scale * reflectance * multiplier
-                        value = if (linear) value.coerceIn(0.0, 1.0) else value / (1 + value)
+                        val peak = 5 * light.scale * reflectance * multiplier
+                        val factor =
+                            if (peak <= .25) 1.0
+                            else (.25 + .75 * (peak - .25) / (peak + .5)) / peak
+                        value = if (linear) value.coerceIn(0.0, 1.0) else value * factor
                         val srgb =
                             if (value <= .0031308) value * 12.92
                             else 1.055 * value.pow(1 / 2.4) - .055
@@ -299,6 +306,61 @@ class LightingViewerTest {
             screenshot.compress(Bitmap.CompressFormat.PNG, 100, it)
         }
         screenshot.recycle()
+        file.delete()
+    }
+
+    @Test
+    fun sceneOneTimesDisplaysLargeRadianceWithoutWhiteoutAndGreyKeepsPhysicalReflectance() {
+        val file = File(context.cacheDir, "lighting-large-values.hdr")
+        HdrWriter(file.outputStream(), 128, 64).use { writer ->
+            repeat(64) { writer.row(FloatArray(128 * 3) { 500f }) }
+        }
+        rule.runOnUiThread {
+            rule.activity.setContent {
+                SphereTheme { ViewerScreen(file, "High radiance regression") {} }
+            }
+        }
+        rule.waitUntil(20_000) {
+            runCatching {
+                    rule
+                        .onNodeWithContentDescription("Increase exposure one stop")
+                        .assertIsEnabled()
+                }
+                .isSuccess
+        }
+        fun find(view: android.view.View): SphereViewer? {
+            if (view is SphereViewer) return view
+            if (view is android.view.ViewGroup)
+                for (i in 0 until view.childCount) find(view.getChildAt(i))?.let {
+                    return it
+                }
+            return null
+        }
+        lateinit var viewer: SphereViewer
+        rule.runOnUiThread { viewer = checkNotNull(find(rule.activity.window.decorView)) }
+        fun centre(x: Double, expected: Int) {
+            rule.waitUntil(5_000) {
+                val image = pixels(viewer) ?: return@waitUntil false
+                val value = Color.red(image.getPixel((image.width * x).toInt(), image.height / 2))
+                image.recycle()
+                abs(value - expected) <= 3
+            }
+        }
+        // Only a quarter-stop viewing trim affects neutral grey (118 -> 108 sRGB).
+        // The shoulder lowers the mirror from clipped white to about 200 without changing rho.
+        centre(.75, 108)
+        centre(.25, 200)
+        rule.onNodeWithText("Explore HDR").performClick()
+        rule.onNodeWithText("Scene 1×").performScrollTo().performClick().assertIsSelected()
+        centre(.5, 118)
+        rule.onNodeWithText("Lighting spheres").performClick()
+        centre(.25, 118)
+        centre(.75, 50) // .18 * .18 linear, with exactly the same exposure as the mirror.
+        val image = checkNotNull(pixels(viewer))
+        File(verification, "lighting-scene-reference.png").outputStream().use {
+            image.compress(Bitmap.CompressFormat.PNG, 100, it)
+        }
+        image.recycle()
         file.delete()
     }
 

@@ -60,6 +60,18 @@ class UiTest {
         screenshot("setup.png")
         rule.onNodeWithText("Detailed environment").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("Quick capture").assertExists()
+        rule.onNodeWithText("Camera lens").performScrollTo().assertIsDisplayed()
+        rule.waitUntil(5000) {
+            rule.onAllNodesWithText("Allow camera access").fetchSemanticsNodes().isNotEmpty() ||
+                rule.onAllNodesWithText("Lens details").fetchSemanticsNodes().isNotEmpty()
+        }
+        if (rule.onAllNodesWithText("Lens details").fetchSemanticsNodes().isNotEmpty()) {
+            rule.onNodeWithText("Lens details").performScrollTo().performClick()
+            rule.onNodeWithText("Camera lens details").assertIsDisplayed()
+            rule.onNodeWithText("Copy details").assertIsDisplayed()
+            rule.onNodeWithText("Done").performClick()
+        } else rule.onNodeWithText("Allow camera access").performScrollTo().assertIsDisplayed()
+
         rule.onNodeWithText("Fill below me").performScrollTo().performClick().assertIsSelected()
         rule.onNodeWithText("Most overlap").performScrollTo().performClick().assertIsSelected()
         rule.onNodeWithText("OpenEXR · compressed").performScrollTo().assertIsSelected()

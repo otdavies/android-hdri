@@ -85,6 +85,17 @@ class CaptureEngine(
     private val manager = activity.getSystemService(CameraManager::class.java)
     private val nativeCamera = initial.cameraKey != "main"
     private var choice: CameraChoice? = null
+    private val cameraMetadata = mutableMapOf<String, CameraCharacteristics>()
+    private var logicalCharacteristics: CameraCharacteristics? = null
+    private var lensGuard = LensSessionGuard(null)
+    private var zoomWaitSince = 0L
+
+    private fun metadata(id: String): CameraCharacteristics =
+        cameraMetadata.getOrPut(id) { manager.getCameraCharacteristics(id) }
+
+    private fun <T> control(key: CameraCharacteristics.Key<T>): T? =
+        characteristics?.get(key) ?: logicalCharacteristics?.get(key)
+
     private var nativeTexture: SurfaceTexture? = null
     private var nativeSurface: Surface? = null
     private var previewSize: Size? = null
@@ -279,6 +290,16 @@ class CaptureEngine(
                     offset = InertialOrientation.zeroHeading(motion.device)
                 }
                 if (planning || errorLatched) return
+                if (nativeCamera && latestResult == null) {
+                    emit(
+                        state.value.copy(
+                            message = "Preparing selected lens…",
+                            detail = "Checking zoom and calibration before planning coverage.",
+                            ready = false,
+                        )
+                    )
+                    return
+                }
                 if (
                     project.targets.isEmpty() || project.coverageVersion < CoveragePlanner.VERSION
                 ) {
@@ -522,9 +543,12 @@ class CaptureEngine(
                             "The selected lens is unavailable. Start a new capture with a supported lens."
                         )
             val id = choice?.cameraId ?: session!!.cameraConfig.cameraId
-            val c = manager.getCameraCharacteristics(choice?.physicalId ?: id)
-            physicalKeys =
-                manager.getCameraCharacteristics(id).availablePhysicalCameraRequestKeys.orEmpty()
+            logicalCharacteristics = metadata(id)
+            val c = metadata(choice?.physicalId ?: id)
+            lensGuard = LensSessionGuard(choice?.zoomRatio)
+            zoomWaitSince = 0L
+            latestResult = null
+            physicalKeys = metadata(id).availablePhysicalCameraRequestKeys.orEmpty()
             characteristics = c
             check(
                 c.get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
@@ -532,7 +556,8 @@ class CaptureEngine(
                 "Capture requires the rear camera."
             }
             sensorOrientation = c.get(CameraCharacteristics.SENSOR_ORIENTATION) ?: 90
-            val caps = (c.get(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES) ?: intArrayOf())
+            val caps =
+                (metadata(id)[CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES] ?: intArrayOf())
             check(CameraCharacteristics.REQUEST_AVAILABLE_CAPABILITIES_MANUAL_SENSOR in caps) {
                 "This camera cannot capture manual exposure brackets."
             }
@@ -585,7 +610,7 @@ class CaptureEngine(
                     )
                 }
             if (nativeCamera) {
-                lens = CameraCatalog.calibration(c, null, size)
+                lens = CameraCatalog.frameCalibration(choice!!, ::metadata, null, size)
                 val previews =
                     c[CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP]!!.getOutputSizes(
                         SurfaceTexture::class.java
@@ -710,6 +735,21 @@ class CaptureEngine(
         }
     }
 
+    private fun calibratedFrame(result: CaptureResult, size: Size): Lens {
+        val zoom =
+            if (Build.VERSION.SDK_INT >= 30) result[CaptureResult.CONTROL_ZOOM_RATIO] else null
+        check(lensGuard.zoomReady(zoom)) { "The camera changed zoom. Retry this direction." }
+        lensGuard.acceptPhysical(result[CaptureResult.LOGICAL_MULTI_CAMERA_ACTIVE_PHYSICAL_ID])
+        val correction = result[CaptureResult.DISTORTION_CORRECTION_MODE]
+        check(
+            correction == CaptureRequest.DISTORTION_CORRECTION_MODE_FAST ||
+                correction == CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY
+        ) {
+            "The camera did not report geometric correction for this frame."
+        }
+        return CameraCatalog.frameCalibration(choice!!, ::metadata, result, size)
+    }
+
     private fun newRequest(template: Int): CaptureRequest.Builder =
         choice?.physicalId?.let { camera!!.createCaptureRequest(template, setOf(it)) }
             ?: camera!!.createCaptureRequest(template)
@@ -725,10 +765,9 @@ class CaptureEngine(
                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE,
                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
                 )
-            builder.set(
-                CaptureRequest.DISTORTION_CORRECTION_MODE,
-                CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY,
-            )
+            builder.set(CaptureRequest.DISTORTION_CORRECTION_MODE, choice!!.correctionMode)
+            if (Build.VERSION.SDK_INT >= 30 && choice?.zoomRatio != null)
+                builder.set(CaptureRequest.CONTROL_ZOOM_RATIO, choice!!.zoomRatio)
             val active = c[CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE]!!
             builder.set(
                 CaptureRequest.SCALER_CROP_REGION,
@@ -767,21 +806,28 @@ class CaptureEngine(
                 val frameResult = physicalResult(result) ?: return
                 if (nativeCamera) {
                     val ir = reader ?: return
-                    runCatching {
-                            check(
-                                frameResult[CaptureResult.DISTORTION_CORRECTION_MODE] ==
-                                    CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY
-                            ) {
-                                "This lens did not apply the requested geometric correction."
-                            }
-                            CameraCatalog.calibration(
-                                characteristics!!,
-                                frameResult,
-                                Size(ir.width, ir.height),
+                    val zoom =
+                        if (Build.VERSION.SDK_INT >= 30)
+                            frameResult[CaptureResult.CONTROL_ZOOM_RATIO]
+                        else null
+                    if (!lensGuard.zoomReady(zoom)) {
+                        latestResult = null
+                        val now = SystemClock.elapsedRealtimeNanos()
+                        if (zoomWaitSince == 0L) zoomWaitSince = now
+                        if (now - zoomWaitSince > 3_000_000_000L)
+                            fail(
+                                "Android did not apply the selected ultrawide zoom. Try the direct ultrawide option in a new capture."
                             )
-                        }
-                        .onSuccess { lens = it }
-                        .onFailure { fail("Lens calibration failed: ${it.message}") }
+                        return
+                    }
+                    zoomWaitSince = 0L
+                    try {
+                        lens = calibratedFrame(frameResult, Size(ir.width, ir.height))
+                    } catch (e: Exception) {
+                        latestResult = null
+                        fail("Lens calibration failed: ${e.message}")
+                        return
+                    }
                 }
                 val now = SystemClock.elapsedRealtimeNanos()
                 val focus = frameResult.get(CaptureResult.LENS_FOCUS_DISTANCE)
@@ -810,7 +856,10 @@ class CaptureEngine(
 
     private fun startPreview() {
         if (camera == null) return
-        val request = newRequest(CameraDevice.TEMPLATE_RECORD)
+        val request =
+            newRequest(
+                if (nativeCamera) CameraDevice.TEMPLATE_PREVIEW else CameraDevice.TEMPLATE_RECORD
+            )
         previewSurfaces().forEach { request.addTarget(it) }
         request.set(
             CaptureRequest.CONTROL_AF_MODE,
@@ -846,8 +895,8 @@ class CaptureEngine(
             store.checkSpace(project.id, 150_000_000)
             val c = characteristics!!
             val result = latestResult ?: error("Camera exposure is not ready. Retry in a moment.")
-            val range = c.get(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)!!
-            val isoRange = c.get(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)!!
+            val range = control(CameraCharacteristics.SENSOR_INFO_EXPOSURE_TIME_RANGE)!!
+            val isoRange = control(CameraCharacteristics.SENSOR_INFO_SENSITIVITY_RANGE)!!
             val aeIso = result.get(CaptureResult.SENSOR_SENSITIVITY) ?: 100
             // Prefer a little sensor noise over long, smeared handheld exposures. Keep ISO
             // fixed inside a bracket; each frame records its actual gain for HDR merging.
@@ -930,7 +979,7 @@ class CaptureEngine(
                             // Fixed daylight balance preserves illuminant color across every
                             // direction.
                             val wb =
-                                (c.get(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES)
+                                (control(CameraCharacteristics.CONTROL_AWB_AVAILABLE_MODES)
                                     ?: intArrayOf())
                             check(CaptureRequest.CONTROL_AWB_MODE_DAYLIGHT in wb) {
                                 "The camera must support fixed daylight white balance for consistent HDR color."
@@ -955,7 +1004,7 @@ class CaptureEngine(
                                     CaptureRequest.LENS_OPTICAL_STABILIZATION_MODE_OFF,
                                 )
                             val modes =
-                                (c.get(CameraCharacteristics.TONEMAP_AVAILABLE_TONE_MAP_MODES)
+                                (control(CameraCharacteristics.TONEMAP_AVAILABLE_TONE_MAP_MODES)
                                     ?: intArrayOf())
                             check(CaptureRequest.TONEMAP_MODE_CONTRAST_CURVE in modes) {
                                 "The camera cannot keep a fixed tone curve for HDR reconstruction."
@@ -1025,14 +1074,12 @@ class CaptureEngine(
                             if (nativeCamera) {
                                 try {
                                     val calibrated =
-                                        CameraCatalog.calibration(
-                                            characteristics!!,
-                                            captured,
-                                            Size(p.lens.width, p.lens.height),
-                                        )
+                                        calibratedFrame(captured, Size(p.lens.width, p.lens.height))
                                     check(
                                         abs(calibrated.fx / p.lens.fx - 1) < .02 &&
-                                            abs(calibrated.fy / p.lens.fy - 1) < .02
+                                            abs(calibrated.fy / p.lens.fy - 1) < .02 &&
+                                            abs(calibrated.cx - p.lens.cx) < p.lens.width * .01 &&
+                                            abs(calibrated.cy - p.lens.cy) < p.lens.height * .01
                                     ) {
                                         "Lens crop changed during the bracket. Retry this direction."
                                     }
@@ -1097,7 +1144,10 @@ class CaptureEngine(
                     else "Confirming focus · hold steady",
             )
         val request =
-            newRequest(CameraDevice.TEMPLATE_RECORD)
+            newRequest(
+                    if (nativeCamera) CameraDevice.TEMPLATE_PREVIEW
+                    else CameraDevice.TEMPLATE_RECORD
+                )
                 .apply {
                     previewSurfaces().forEach { addTarget(it) }
                     set(CaptureRequest.CONTROL_AF_MODE, CaptureRequest.CONTROL_AF_MODE_OFF)
