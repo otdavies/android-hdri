@@ -31,3 +31,15 @@ The release gate requires 33 installed-APK tests. The new thumbnail test reads b
 The first installed-APK run passed the new route HUD and thumbnail tests. The screenshot review found the expanded header crowded the direction arrow on a small display, so the stage text is now folded into the ring counter and the redundant gyro label is removed. The arrow retains clear space around the reticle.
 
 That run also exposed an existing lighting-test synchronization defect: one shoulder-mapped chrome channel was close enough to a later linear exposure to accept the previous frame. The test now waits for all channels on both probes and asserts the same copied buffer. Expected reflectance, exposure values and the three-code-value tolerance are unchanged. Publication still requires the entire installed-app suite to pass.
+
+## Published Preview 23
+
+[Release and APK](https://github.com/otdavies/android-hdri/releases/tag/v0.1.0-preview.23), from source `531f6fffb4e1a5296c06413e3152f2cd25b9fc82`. [GitHub run 34086749405](https://github.com/otdavies/android-hdri/actions/runs/34086749405) passed build, device verification and publication. All 48 JVM tests passed; lint reported zero errors and eight advisory warnings. All 33 installed-APK tests passed in 72.606 seconds. Independent OpenEXR 3.3.3 decoding confirmed exact float channels, ZIP/raw blocks, partial-block orientation and the 100000 / 1e-8 highlight/dim fixtures.
+
+The final Android thumbnail fixture took 134 ms for EXR generation, 1 ms for a cache hit, 109 ms for HDR generation and 94 ms after replacement. It checked alpha, cross-format agreement, invalidation and the actual capture row. These are emulator measurements. The capture HUD and row screenshots were visually reviewed, including the cleared arrow area and shutter controls.
+
+Two existing private capture masters also rendered successfully on the host with a 48 MiB Java heap: the 2K daytime environment produced a 58,788-byte PNG in 301 ms, and the 4K nighttime environment a 66,043-byte PNG in 564 ms. Both retained only a 512×256 light map and were visually reviewed. These are development-machine timings, not Pixel 8 timings; private images remain outside the repository.
+
+Published APK: 124,036,857 bytes; SHA-256 `1221eca613be0a3c704d077b6f3f4f6df6d2b798e9bfbcdbb5e3e12e37aca6ec`. Checked device-verification archive SHA-256: `e6bbd67f05ea877ff73509cd1e36f42ace16d23260948885c1e85fdf37fa7cb7`.
+
+Real scan comfort and comparative stitching success under the canonical route remain a physical-phone validation item. No change in capture quality or light calibration is claimed from these UI/thumbnail checks.
