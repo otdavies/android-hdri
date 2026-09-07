@@ -59,3 +59,11 @@ Private photographs and rebuilt images are kept outside this public repository.
 The GPU directional-grey fixture produced sRGB values 95, 118 and 136 for three sampled normals, exactly matching its analytical expectations. Actual rendered field-of-view changes passed at 0.5×, 1× and 4×. Screenshots of lighting controls, ground options and source-removal storage were reviewed.
 
 Published APK: 123,971,321 bytes; SHA-256 `14a81f33d58a66202e72641b798447eaae8533805201902ea5d879e3f3672504`. Pixel 8 physical lens validation remains outstanding.
+
+### Published Preview 20
+
+[Release and APK](https://github.com/otdavies/android-hdri/releases/tag/v0.1.0-preview.20), from source `f9b83f6d0b7cdcbb304597aadee9ab195edf20cf`. [GitHub run 34069021717](https://github.com/otdavies/android-hdri/actions/runs/34069021717) passed build, device and publication jobs. All 37 JVM tests passed; lint reported no errors and eight advisory warnings. The 31 installed-APK tests passed in 68.767 seconds, and the independent OpenEXR 3.3.3 checks passed.
+
+The new GPU regression renders a uniform environment with radiance 500: Scene 1× yields approximately 118/255 on the mirror and 50/255 on the 18% sphere, instead of a whiteout. The default diffuse meter / shoulder checks approximately 200/255 mirror and 108/255 grey (GPU tolerance three code values). The unchanged analytical directional-grey reference still renders 95, 118 and 136 exactly. Verification screenshots show the new exposure references and highlight switch without clipped controls.
+
+Published APK: 124,004,089 bytes; SHA-256 `0c604bd4d3346afab0fbe5182c5f8b06e3f0eeafdf6fd2f7b830e71cd6257324`. The checked device-verification archive has SHA-256 `069c0d5ad401807ede1012eea12bef1360afb9495951e4b5f8353e2fdd3a6877`. Pixel 8 logical-ultrawide negotiation and geometry remain hardware validation items.
