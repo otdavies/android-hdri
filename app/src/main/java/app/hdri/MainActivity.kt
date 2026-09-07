@@ -167,6 +167,7 @@ private fun SphereApp(vm: AppViewModel) {
                     vm::open,
                     { vm.create(Quality.QUICK, true) },
                     vm::clearExportCache,
+                    vm.store,
                 )
             Screen.SETUP ->
                 Setup(
@@ -286,6 +287,7 @@ private fun Home(
     open: (String) -> Unit,
     sample: () -> Unit,
     clearCache: () -> Unit,
+    store: SessionStore,
 ) {
     LazyColumn(
         Modifier.fillMaxSize().safeDrawingPadding(),
@@ -388,13 +390,18 @@ private fun Home(
                 }
         }
         items(app.projects, key = { it.id }) { p ->
-            CaptureRow(p, app.storage[p.id]) { open(p.id) }
+            CaptureRow(p, app.storage[p.id], store) { open(p.id) }
         }
     }
 }
 
 @Composable
-private fun CaptureRow(p: Project, storage: CaptureStorage?, open: () -> Unit) {
+internal fun CaptureRow(
+    p: Project,
+    storage: CaptureStorage?,
+    store: SessionStore,
+    open: () -> Unit,
+) {
     Row(
         Modifier.fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
@@ -404,7 +411,7 @@ private fun CaptureRow(p: Project, storage: CaptureStorage?, open: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SphereArt(Modifier.size(64.dp), if (p.state == "processing") p.progress.toFloat() else 0f)
+        ScanThumbnail(p, store, Modifier.size(64.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(p.name, fontWeight = FontWeight.Medium, maxLines = 1)
             Text(
@@ -648,7 +655,7 @@ private fun Setup(
                 fontSize = 13.sp,
             )
         Text(
-            "Leave at least 1 GB free for capture and processing. Temporary processing files are cleared when finished. You can remove source photos later to keep only the HDRI. HDR exports contain relative lighting values. The default main-camera preview uses Google Play Services for AR. Other listed lenses use Camera2 directly. Gyro guidance and stitching work offline.",
+            "Follow the arrow around the horizon first, then the upper rings and top, then the lower rings. Ground capture comes last when enabled. Pause at each highlighted dot; capture is automatic.\n\nLeave at least 1 GB free for capture and processing. Temporary processing files are cleared when finished. You can remove source photos later to keep only the HDRI. HDR exports contain relative lighting values. The default main-camera preview uses Google Play Services for AR. Other listed lenses use Camera2 directly. Gyro guidance and stitching work offline.",
             color = Muted,
             fontSize = 13.sp,
             lineHeight = 20.sp,

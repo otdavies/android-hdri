@@ -35,14 +35,6 @@ fun CaptureOverlay(
         state.ready && !state.busy && !state.needsAnchor && state.error == null && guide != null
     val aligned = guiding && state.aimLocked
     val color = Lime
-    val pulse by
-        rememberInfiniteTransition(label = "Guide glow")
-            .animateFloat(
-                .55f,
-                1f,
-                infiniteRepeatable(tween(1100), RepeatMode.Reverse),
-                label = "Breathing glow",
-            )
     val dwell by animateFloatAsState(state.dwell, tween(120), label = "Auto capture ring")
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val panelHeight = maxHeight * if (state.needsAnchor) .65f else .43f
@@ -58,16 +50,6 @@ fun CaptureOverlay(
                 val dy = -guide.pitch
                 val magnitude = hypot(dx, dy).coerceAtLeast(.01f)
                 val direction = Offset(dx / magnitude, dy / magnitude)
-                val edge =
-                    center +
-                        Offset(direction.x * size.width * .52f, direction.y * size.height * .5f)
-                drawRect(
-                    Brush.radialGradient(
-                        listOf(color.copy(alpha = .30f * pulse), Color.Transparent),
-                        edge,
-                        max(size.width, size.height) * .7f,
-                    )
-                )
                 val distance = min(size.width * .32f, 118.dp.toPx())
                 val point = center + direction * distance
                 val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
@@ -93,7 +75,7 @@ fun CaptureOverlay(
                             )
                             drawPath(
                                 path,
-                                color.copy(alpha = if (i == 0) 1f else pulse),
+                                color.copy(alpha = if (i == 0) 1f else .65f),
                                 style =
                                     Stroke(
                                         3.dp.toPx(),
@@ -113,16 +95,6 @@ fun CaptureOverlay(
                 drawCircle(tint, if (m.complete) 5.dp.toPx() else 8.dp.toPx(), pos)
                 if (m.active) drawCircle(tint, 17.dp.toPx(), pos, style = Stroke(1.5.dp.toPx()))
             }
-            if (aligned || state.busy)
-                drawCircle(
-                    Brush.radialGradient(
-                        listOf(Lime.copy(alpha = .18f * pulse), Color.Transparent),
-                        center,
-                        75.dp.toPx(),
-                    ),
-                    75.dp.toPx(),
-                    center,
-                )
             val radius = 38.dp.toPx()
             drawCircle(Ink.copy(alpha = .7f), radius, center, style = Stroke(6.dp.toPx()))
             drawCircle(
@@ -188,6 +160,48 @@ fun CaptureOverlay(
                     fontWeight = FontWeight.Medium,
                 )
             }
+            state.route
+                ?.takeUnless { state.needsAnchor || state.complete }
+                ?.let { route ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            route.title,
+                            color = Lime,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text("${route.saved}/${route.total} saved", color = Muted, fontSize = 12.sp)
+                    }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        repeat(route.rings) { index ->
+                            LinearProgressIndicator(
+                                progress = {
+                                    when {
+                                        index + 1 < route.ring -> 1f
+                                        index + 1 == route.ring ->
+                                            route.saved.toFloat() / route.total
+                                        else -> 0f
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).height(3.dp),
+                                color = Lime,
+                                trackColor = Muted.copy(alpha = .22f),
+                                drawStopIndicator = {},
+                            )
+                        }
+                    }
+                    Text(
+                        if (route.total > 1)
+                            "Stage ${route.ring} of ${route.rings} · finish this ring, then change tilt"
+                        else "Stage ${route.ring} of ${route.rings} · one view at this pole",
+                        color = Muted,
+                        fontSize = 11.sp,
+                    )
+                }
             if (guiding)
                 Text(
                     "GYRO GUIDANCE · ROTATE IN PLACE",
@@ -261,7 +275,7 @@ fun CaptureOverlay(
                 else -> {
                     Text(
                         if (aligned) "Auto shutter is settling · ${(state.dwell*100).roundToInt()}%"
-                        else "Align a dot · the shutter fires for you",
+                        else "Align the highlighted dot · auto capture",
                         color = Lime,
                         fontSize = 12.sp,
                     )

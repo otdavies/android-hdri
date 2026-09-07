@@ -16,6 +16,7 @@ import android.os.*
 import android.util.Size
 import android.view.Surface
 import app.hdri.core.*
+import app.hdri.core.Target
 import app.hdri.data.*
 import com.google.ar.core.Config
 import com.google.ar.core.Session
@@ -54,6 +55,7 @@ data class CaptureUi(
     val aimLocked: Boolean = false,
     val manualReady: Boolean = false,
     val notice: String? = null,
+    val route: RouteProgress? = null,
 )
 
 /** Inertial orientation owns guidance. ARCore supplies preview/intrinsics and shared Camera2. */
@@ -119,6 +121,8 @@ class CaptureEngine(
     private var lastUi = 0L
     private var lastFrameTimestamp = 0L
     private var selected = -1
+    private var routeTargets: List<Target>? = null
+    private var route = CaptureRoute(initial.targets)
     @Volatile private var focusWaitSince = 0L
     @Volatile private var planning = false
     private val gate = SteadyGate()
@@ -324,8 +328,11 @@ class CaptureEngine(
                 val q = (offset ?: Q()) * latestQ
                 val forward = q.rotate(V3.FORWARD)
                 val done = project.captures.map { it.targetId }.toSet()
-                val next =
-                    project.targets.filter { it.id !in done }.minByOrNull { it.ray.angle(forward) }
+                if (routeTargets !== project.targets) {
+                    routeTargets = project.targets
+                    route = CaptureRoute(project.targets)
+                }
+                val next = route.next(done)
                 if (next == null) {
                     emit(
                         CaptureUi(
@@ -362,6 +369,7 @@ class CaptureEngine(
                 c?.getProjectionMatrix(proj, 0, .1f, 100f)
                 val markers =
                     project.targets.mapNotNull { t ->
+                        if (t.id != next.id && t.id !in done) return@mapNotNull null
                         val v = dq.inverse().rotate(t.ray)
                         if (v.z >= -.05) return@mapNotNull null
                         val screen =
@@ -408,7 +416,7 @@ class CaptureEngine(
                         msg,
                         if (angle <= CaptureTolerance.AIM_EXIT)
                             "Pause your turn · let focus and the shutter ring settle."
-                        else "Rotate in place · follow the glow to the next dot.",
+                        else "Follow the arrow to the highlighted dot.",
                         done.size,
                         project.targets.size,
                         markers,
@@ -420,6 +428,7 @@ class CaptureEngine(
                             gate.reason == HoldReason.SETTLING || gate.reason == HoldReason.READY,
                         manualReady = angle <= CaptureTolerance.AIM_ENTER && dwell > 0.0,
                         notice = if (SystemClock.elapsedRealtime() < noticeUntil) notice else null,
+                        route = route.progress(done),
                     )
                 )
                 val manual = manualRequested && angle <= CaptureTolerance.AIM_ENTER && dwell > 0.0

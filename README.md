@@ -12,8 +12,8 @@ The default main-camera preview uses Google Play Services for AR, which must be 
 
 1. Choose **New photosphere** and 2K / three exposures or 4K / five exposures.
 2. Choose a camera lens, capture pace, ground mode and stored HDR format. Wipe the selected lens. Turn where you stand and tilt the phone normally; the camera is expected to move around you as you turn.
-3. Follow the directional glow and arrows to bring a guide dot into the ring. Small hand wobbles are okay: the ring fills and captures a bracket automatically. Turn/tilt indicators and optional leveling help with framing; **Capture now** is a fallback when aligned.
-4. Complete the sky, horizon and ground. Processing starts automatically with visible stages and a foreground notification.
+3. Follow the arrow to bring the highlighted dot into the ring. Small hand wobbles are okay: the ring fills and captures a bracket automatically. Turn/tilt indicators and optional leveling help with framing; **Capture now** is a fallback when aligned.
+4. Complete the horizon loop, then upper rings and the top, then lower rings and the ground if enabled. The stage strip shows where you are in the route. Processing starts automatically with visible stages and a foreground notification.
 5. Tap **Lighting spheres** to inspect chrome and 18% grey spheres under the captured HDRI. Rotate the light, choose an exposure reference or explore the HDR panorama with pinch zoom, then export `.exr`, `.hdr` or a photosphere JPEG. Existing projects can **Rebuild from saved photos** after an app update.
 
 **Explore a sample capture** creates an analytic HDR light stage on the phone and runs it through the same image pipeline. It is useful for testing processing and export before a real capture.
@@ -58,3 +58,5 @@ Handheld stitching improvements, private replay instructions and measurements: [
 Brand, lighting reference and camera sharpness update: [sphere update](docs/SPHERE-UPDATE.md).
 
 Lighting reference, zoom, lens selection, approximate ground fill and compact storage: [field workflow](docs/FIELD-WORKFLOW.md).
+
+Canonical capture guidance and chrome thumbnails: [implementation](docs/CAPTURE-ROUTE.md). Path to a shared HDRI library: [platform roadmap](docs/PLATFORM-ROADMAP.md).

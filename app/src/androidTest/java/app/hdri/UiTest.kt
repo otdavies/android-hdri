@@ -166,7 +166,8 @@ class UiTest {
             mutableStateOf(
                 CaptureUi(
                     message = "Turn right · tilt up",
-                    detail = "Follow the glow and bring the next dot into the ring.",
+                    detail = "Follow the arrow and bring the highlighted dot into the ring.",
+                    route = app.hdri.core.RouteProgress("Horizon", 1, 5, 7, 12),
                     captured = 7,
                     total = 41,
                     ready = true,
@@ -175,7 +176,7 @@ class UiTest {
                     markers =
                         listOf(
                             Marker(8, .82f, .32f, false, true),
-                            Marker(9, .22f, .25f, false, false),
+                            Marker(9, .22f, .25f, true, false),
                         ),
                 )
             )
@@ -193,6 +194,9 @@ class UiTest {
         rule.onNodeWithText("GYRO GUIDANCE · ROTATE IN PLACE").assertIsDisplayed()
         rule.onNodeWithText("Turn right · tilt up").assertIsDisplayed()
         rule.onNodeWithText("Capture now").assertIsNotEnabled()
+        rule.onNodeWithText("Horizon").assertIsDisplayed()
+        rule.onNodeWithText("7/12 saved").assertIsDisplayed()
+        rule.onNodeWithText("Stage 1 of 5 · finish this ring, then change tilt").assertIsDisplayed()
         screenshot("capture-guidance.png")
         rule.runOnUiThread {
             state.value = state.value.copy(guide = AimGuide(3.9f, 3.9f, 0f), aimDegrees = 5.5f)
