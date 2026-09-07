@@ -2,6 +2,8 @@
 
 Research and proposal · 7 September 2026. This is a staged product/engineering plan, not a claim that the current phone captures meet Poly Haven's publishing requirements. The app still works entirely locally; this change adds no account, network permission, upload or public publishing.
 
+**Updated direction:** the subsequent [low-cost service plan](SERVICE-PLAN.md) supersedes this document's launch sequence. Start with a broad public browse/download pilot and factual quality labels, then contributor intake and optional paid private projects. RAW, 16K and calibrated capture remain useful research tracks, not prerequisites for publishing useful phone environments. The comparisons and measurement work below remain reference material.
+
 ## Recommendation
 
 Start with **a personal and team lighting library for real locations**: capture on a phone, evaluate the light on chrome/grey objects, attach a scene/take reference, and deliver a predictable asset to Blender or a game engine. Build a curated public collection on top of that workflow once capture quality can be measured. The advantage to pursue is fast acquisition of the user's actual location, repeat visits and useful production context.
@@ -96,7 +98,7 @@ The [Poly Haven API](https://polyhaven.com/our-api) exposes searchable asset met
 
 Before launch, estimate operations from a pilot rather than assuming image hosting is free: retained master bytes × asset revisions, derivative storage, delivered GB, job CPU time, backups and reviewer time. Preserve the phone's compact local master; server-side download variants can be generated and cached by demand. A paid private-team workflow or voluntary public-library support are hypotheses to test with users, not commitments in this release.
 
-## Suggested next work, in order
+## Earlier proposed sequence (superseded by the service plan)
 
 1. Implement the portable manifest and edited-region provenance, plus a focused quality-review UI using existing stitch diagnostics.
 2. Build a Pixel 8 RAW/linear-response and bright-source clipping experiment; measure the main and ultrawide paths separately.

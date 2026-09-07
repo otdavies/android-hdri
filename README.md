@@ -60,3 +60,5 @@ Brand, lighting reference and camera sharpness update: [sphere update](docs/SPHE
 Lighting reference, zoom, lens selection, approximate ground fill and compact storage: [field workflow](docs/FIELD-WORKFLOW.md).
 
 Canonical capture guidance and chrome thumbnails: [implementation](docs/CAPTURE-ROUTE.md). Path to a shared HDRI library: [platform roadmap](docs/PLATFORM-ROADMAP.md).
+
+Public browse/download architecture, estimated costs and a proposed business model: [low-cost service plan](docs/SERVICE-PLAN.md).
