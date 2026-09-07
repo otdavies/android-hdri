@@ -25,3 +25,9 @@ PNG derivatives are stored in Android's regenerable cache, capped at 8 MiB acros
 Local build: 48 JVM tests pass, zero failures/errors/skips; lint has zero errors and eight existing advisory warnings. Both release and instrumentation APKs compile. Seven new JVM tests cover stable ring order, gap/resume handling, unchanged ultrawide/filled-ground targets, mirror axes, alpha area and middle-grey transfer, streamed EXR/RGBE agreement, repeat runs and truncation.
 
 The release gate requires 33 installed-APK tests. The new thumbnail test reads both masters, checks cache reuse and same-path replacement, verifies transparent PNG pixels and renders the actual production capture row. The capture HUD test checks ring/stage progress with the automatic shutter. CI includes screenshots and timings; a publication receipt follows after verification.
+
+## Release-candidate review
+
+The first installed-APK run passed the new route HUD and thumbnail tests. The screenshot review found the expanded header crowded the direction arrow on a small display, so the stage text is now folded into the ring counter and the redundant gyro label is removed. The arrow retains clear space around the reticle.
+
+That run also exposed an existing lighting-test synchronization defect: one shoulder-mapped chrome channel was close enough to a later linear exposure to accept the previous frame. The test now waits for all channels on both probes and asserts the same copied buffer. Expected reflectance, exposure values and the three-code-value tolerance are unchanged. Publication still requires the entire installed-app suite to pass.

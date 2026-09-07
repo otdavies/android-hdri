@@ -191,12 +191,10 @@ class UiTest {
             }
         }
         rule.onNodeWithText("AUTO CAPTURE").assertIsDisplayed()
-        rule.onNodeWithText("GYRO GUIDANCE · ROTATE IN PLACE").assertIsDisplayed()
         rule.onNodeWithText("Turn right · tilt up").assertIsDisplayed()
         rule.onNodeWithText("Capture now").assertIsNotEnabled()
         rule.onNodeWithText("Horizon").assertIsDisplayed()
-        rule.onNodeWithText("7/12 saved").assertIsDisplayed()
-        rule.onNodeWithText("Stage 1 of 5 · finish this ring, then change tilt").assertIsDisplayed()
+        rule.onNodeWithText("Stage 1/5 · 7/12 saved").assertIsDisplayed()
         screenshot("capture-guidance.png")
         rule.runOnUiThread {
             state.value = state.value.copy(guide = AimGuide(3.9f, 3.9f, 0f), aimDegrees = 5.5f)

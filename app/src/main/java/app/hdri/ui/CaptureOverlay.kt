@@ -171,7 +171,11 @@ fun CaptureOverlay(
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.weight(1f),
                         )
-                        Text("${route.saved}/${route.total} saved", color = Muted, fontSize = 12.sp)
+                        Text(
+                            "Stage ${route.ring}/${route.rings} · ${route.saved}/${route.total} saved",
+                            color = Muted,
+                            fontSize = 11.sp,
+                        )
                     }
                     Row(
                         Modifier.fillMaxWidth(),
@@ -194,21 +198,7 @@ fun CaptureOverlay(
                             )
                         }
                     }
-                    Text(
-                        if (route.total > 1)
-                            "Stage ${route.ring} of ${route.rings} · finish this ring, then change tilt"
-                        else "Stage ${route.ring} of ${route.rings} · one view at this pole",
-                        color = Muted,
-                        fontSize = 11.sp,
-                    )
                 }
-            if (guiding)
-                Text(
-                    "GYRO GUIDANCE · ROTATE IN PLACE",
-                    color = Muted,
-                    fontSize = 10.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
             if (guiding)
                 Row(
                     Modifier.fillMaxWidth(),

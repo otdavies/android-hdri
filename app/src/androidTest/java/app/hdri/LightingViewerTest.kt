@@ -96,52 +96,52 @@ class LightingViewerTest {
         rule.waitUntil(15_000) { ready.get() || error.get() != null }
         assertNull(error.get())
         fun verify(multiplier: Double, linear: Boolean) {
-            val expectedRed = run {
-                val value = 2 * light.scale * multiplier
-                val peak = 5 * light.scale * multiplier
+            fun expected(reflectance: Double, channel: Int): Int {
+                val value =
+                    floatArrayOf(2f, 3f, 5f)[channel] * light.scale * reflectance * multiplier
+                val peak = 5 * light.scale * reflectance * multiplier
                 val factor =
                     if (peak <= .25) 1.0 else (.25 + .75 * (peak - .25) / (peak + .5)) / peak
                 val mapped = if (linear) value.coerceIn(0.0, 1.0) else value * factor
-                ((if (mapped <= .0031308) mapped * 12.92 else 1.055 * mapped.pow(1 / 2.4) - .055) *
-                        255)
-                    .roundToInt()
+                val srgb =
+                    if (mapped <= .0031308) mapped * 12.92 else 1.055 * mapped.pow(1 / 2.4) - .055
+                return (srgb * 255).roundToInt()
             }
-            // PixelCopy reads the last presented buffer. Wait for the requested exposure
-            // to reach the surface instead of racing the GL thread's next buffer swap.
+            fun channels(pixel: Int) =
+                intArrayOf(Color.red(pixel), Color.green(pixel), Color.blue(pixel))
+            val probes = listOf(.25 to 1.0, .75 to .18)
+            var presented: Bitmap? = null
+            // A chrome channel under the shoulder can equal that same channel at a
+            // different linear exposure. It cannot identify which frame was presented.
+            // Wait for both probes and every channel, then assert that SAME buffer.
             rule.waitUntil(5_000) {
                 val candidate = pixels(viewer) ?: return@waitUntil false
                 val matches =
-                    abs(
-                        Color.red(candidate.getPixel(candidate.width / 4, candidate.height / 2)) -
-                            expectedRed
-                    ) <= 3
-                candidate.recycle()
+                    probes.all { (x, reflectance) ->
+                        val values =
+                            channels(
+                                candidate.getPixel(
+                                    (candidate.width * x).toInt(),
+                                    candidate.height / 2,
+                                )
+                            )
+                        (0..2).all { abs(values[it] - expected(reflectance, it)) <= 3 }
+                    }
+                if (matches) presented = candidate else candidate.recycle()
                 matches
             }
-            val image = checkNotNull(pixels(viewer)) { "The presented lighting frame disappeared." }
+            val image =
+                checkNotNull(presented) { "The requested lighting frame was not presented." }
             try {
-                for ((x, reflectance) in listOf(.25 to 1.0, .75 to .18)) {
-                    val pixel = image.getPixel((image.width * x).toInt(), image.height / 2)
-                    for (c in 0..2) {
-                        var value =
-                            floatArrayOf(2f, 3f, 5f)[c] * light.scale * reflectance * multiplier
-                        val peak = 5 * light.scale * reflectance * multiplier
-                        val factor =
-                            if (peak <= .25) 1.0
-                            else (.25 + .75 * (peak - .25) / (peak + .5)) / peak
-                        value = if (linear) value.coerceIn(0.0, 1.0) else value * factor
-                        val srgb =
-                            if (value <= .0031308) value * 12.92
-                            else 1.055 * value.pow(1 / 2.4) - .055
-                        val actual =
-                            intArrayOf(Color.red(pixel), Color.green(pixel), Color.blue(pixel))[c]
-                        assertEquals(
-                            "Channel $c, reflectance $reflectance",
-                            (srgb * 255).roundToInt().toDouble(),
-                            actual.toDouble(),
-                            3.0,
-                        )
-                    }
+                for ((x, reflectance) in probes) {
+                    val values =
+                        channels(image.getPixel((image.width * x).toInt(), image.height / 2))
+                    for (c in 0..2) assertEquals(
+                        "Channel $c, reflectance $reflectance",
+                        expected(reflectance, c).toDouble(),
+                        values[c].toDouble(),
+                        3.0,
+                    )
                 }
                 File(verification, if (linear) "lighting-linear.png" else "lighting-probes.png")
                     .outputStream()
