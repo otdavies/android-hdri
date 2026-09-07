@@ -61,4 +61,4 @@ Lighting reference, zoom, lens selection, approximate ground fill and compact st
 
 Canonical capture guidance and chrome thumbnails: [implementation](docs/CAPTURE-ROUTE.md). Path to a shared HDRI library: [platform roadmap](docs/PLATFORM-ROADMAP.md).
 
-Public browse/download architecture, estimated costs and a proposed business model: [low-cost service plan](docs/SERVICE-PLAN.md).
+Current product direction and implementation sequence: [public catalog, editor imports and tracked placement](docs/CATALOG-MVP.md). Infrastructure estimates and earlier business-model research: [low-cost service plan](docs/SERVICE-PLAN.md).

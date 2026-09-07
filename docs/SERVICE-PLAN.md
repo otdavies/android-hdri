@@ -2,6 +2,8 @@
 
 Proposal and pricing research · 7 September 2026 · USD unless stated otherwise.
 
+**Current scope:** [CATALOG-MVP.md](CATALOG-MVP.md) now defines the product and delivery order: public HDRI browsing/downloads, Blender/Unity/Unreal imports, then a separate tracked-placement experiment. Its optional workflow-tool model replaces the private project-pass recommendation below. Retain this earlier proposal for infrastructure/cost reference; its pricing and private-project features are historical alternatives, not the launch plan.
+
 This is a design, not a deployed service or an adopted price/license. It supersedes the launch sequence in [the earlier platform roadmap](PLATFORM-ROADMAP.md): a useful public collection can launch before RAW capture, 16K output or a calibrated acquisition workflow. Those remain optional quality improvements. The Android app remains local and account-free in the current release.
 
 ## Product and business recommendation

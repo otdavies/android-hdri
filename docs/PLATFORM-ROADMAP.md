@@ -2,7 +2,7 @@
 
 Research and proposal · 7 September 2026. This is a staged product/engineering plan, not a claim that the current phone captures meet Poly Haven's publishing requirements. The app still works entirely locally; this change adds no account, network permission, upload or public publishing.
 
-**Updated direction:** the subsequent [low-cost service plan](SERVICE-PLAN.md) supersedes this document's launch sequence. Start with a broad public browse/download pilot and factual quality labels, then contributor intake and optional paid private projects. RAW, 16K and calibrated capture remain useful research tracks, not prerequisites for publishing useful phone environments. The comparisons and measurement work below remain reference material.
+**Updated direction:** [the current catalog and import plan](CATALOG-MVP.md) supersedes this document's launch sequence. Start with public HDRI browsing/downloads and straightforward Blender/Unity/Unreal imports, followed by a separate tracked-placement experiment. The [service plan](SERVICE-PLAN.md) retains infrastructure/cost research; private project passes are an earlier alternative. RAW, 16K and calibrated capture remain useful research tracks, not prerequisites for publishing useful phone environments. The comparisons and measurement work below remain reference material.
 
 ## Recommendation
 
