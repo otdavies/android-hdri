@@ -19,13 +19,34 @@ data class CameraChoice(
     val sensorOrientation: Int,
     val zoomRatio: Float? = null,
     val correctionMode: Int = CaptureRequest.DISTORTION_CORRECTION_MODE_HIGH_QUALITY,
+    val focalRatio: Double = 1.0,
 )
 
 data class CameraScan(
     val choices: List<CameraChoice>,
     val diagnostics: List<String>,
     val permissionRequired: Boolean = false,
-)
+) {
+    /** One useful wide choice. Physical-stream routes remain resolvable for old sessions only. */
+    val captureChoices: List<CameraChoice>
+        get() =
+            listOfNotNull(
+                choices
+                    .filter { it.physicalId == null && it.focalRatio > 0 && it.focalRatio < .85 }
+                    .sortedWith(
+                        compareBy<CameraChoice> { it.zoomRatio == null }
+                            .thenBy { it.focalRatio }
+                            .thenBy { it.key }
+                    )
+                    .firstOrNull()
+                    ?.let { camera ->
+                        camera.copy(
+                            label =
+                                "Ultrawide · ${String.format(Locale.US, "%.1f", camera.focalRatio)}×"
+                        )
+                    }
+            )
+}
 
 object CameraCatalog {
     fun discover(context: Context): List<CameraChoice> = inspect(context).choices
@@ -87,6 +108,7 @@ object CameraCatalog {
                                     logical[CameraCharacteristics.SENSOR_ORIENTATION] ?: 90,
                                     zoom,
                                     mode,
+                                    (lens.fx / lens.width) / reference!!,
                                 )
                             notes += "Rear $id: logical ultrawide available (correction $mode)."
                         }
@@ -119,6 +141,7 @@ object CameraCatalog {
                                 c[CameraCharacteristics.SENSOR_ORIENTATION] ?: 90,
                                 null,
                                 mode,
+                                ratio,
                             )
                         notes += "Rear $id / $physical: direct lens available (correction $mode)."
                     }

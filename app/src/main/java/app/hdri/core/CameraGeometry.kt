@@ -4,6 +4,25 @@ import kotlin.math.*
 
 /** Pinhole stream cropping and a shared preview/marker transform. */
 object CameraGeometry {
+    /** Display corners in strip order, expressed in unrotated camera image coordinates. */
+    fun previewCoordinates(cameraInDisplay: Q, lens: Lens, width: Int, height: Int): FloatArray {
+        val corners = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
+        for (i in 0 until 4) {
+            val image =
+                displayToImage(
+                    corners[i * 2].toDouble(),
+                    corners[i * 2 + 1].toDouble(),
+                    cameraInDisplay,
+                    lens,
+                    width,
+                    height,
+                )
+            corners[i * 2] = image.first.toFloat()
+            corners[i * 2 + 1] = image.second.toFloat()
+        }
+        return corners
+    }
+
     /** Zoom about the stream centre, retaining a calibrated off-centre principal point. */
     fun zoom(sensor: Lens, ratio: Double): Lens {
         require(ratio.isFinite() && ratio > 0)

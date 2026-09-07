@@ -51,5 +51,11 @@ The hardest pending quality work is reliable correspondence and structure preser
 
 - Default **Smooth highlights** should show detail in chrome and the environment with only a small grey-level change. Toggle it off to inspect reference sRGB clipping. Exposure controls remain shared by both materials and the environment.
 - **Scene 1×** should show a normally exposed environment, including older captures with large numeric radiance; it must not turn an ordinary room uniformly white.
-- After camera permission, look for **Ultrawide · 0.5×** (the label follows Android's actual minimum). Prefer that logical option first; direct physical options remain available. **Lens details → Copy details** includes zoom ranges and discovery decisions if the lens is still missing.
+- After camera permission, look for **Ultrawide · 0.5×** (the label follows Android's actual minimum). Setup should show one ultrawide option alongside Main camera, without duplicate or direct entries. **Lens details → Copy details** includes zoom ranges and discovery decisions if the lens is still missing.
 - Compare framing at the same pose between main and ultrawide. Confirm the ultrawide's wider preview agrees with target markers, requires fewer stops, and keeps the same crop through each bracket. A rejected/ignored zoom or hardware lens switch must produce a visible error instead of a corrupted mixed-lens sphere.
+
+### Lens picker and portrait preview follow-up
+
+- New capture setup should show Main camera and at most one Ultrawide option. No direct/native implementation choices should appear. Opening a saved session must retain its original lens identity.
+- Hold the Pixel 8 upright and select Ultrawide. A vertical doorframe should look vertical, text should read normally, and circles should remain round. Move a physical feature through a guide dot: their screen positions should agree.
+- Reopen capture and change lens for a new session to check that the preview orientation remains correct. Existing main-camera framing and recorded JPEG orientation should be unchanged.

@@ -475,6 +475,16 @@ private fun Setup(
             value = withContext(Dispatchers.IO) { CameraCatalog.inspect(context) }
         }
     val cameras = cameraScan?.choices
+    val captureCameras = cameraScan?.captureChoices
+    LaunchedEffect(cameraScan, cameraKey) {
+        // This is new-capture setup only. Existing sessions retain their original camera key.
+        if (
+            cameraScan != null &&
+                cameraKey != "main" &&
+                captureCameras?.none { it.key == cameraKey } == true
+        )
+            selectCamera("main")
+    }
     if (lensDetails)
         AlertDialog(
             onDismissRequest = { lensDetails = false },
@@ -574,7 +584,7 @@ private fun Setup(
         }
         Text("Camera lens", fontWeight = FontWeight.Medium)
         FilterChip(cameraKey == "main", { selectCamera("main") }, label = { Text("Main camera") })
-        cameras?.forEach { camera ->
+        captureCameras?.forEach { camera ->
             FilterChip(
                 cameraKey == camera.key,
                 { selectCamera(camera.key) },
@@ -597,7 +607,7 @@ private fun Setup(
                 TextButton({ lensDetails = true }) { Text("Lens details") }
             }
         Text(
-            "Wider lenses need fewer stops. Ultrawide uses Android's zoom-out control where available. Direct options select a physical camera. Zoom and calibration are checked before capture.",
+            "Ultrawide needs fewer stops. The selected lens stays fixed throughout the capture.",
             color = Muted,
             fontSize = 13.sp,
         )

@@ -226,20 +226,13 @@ class CaptureEngine(
                     } else null
                 if (nativeCamera) {
                     val visibleLens = lens ?: return
-                    val coordinates = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
-                    for (i in 0 until 4) {
-                        val uv =
-                            CameraGeometry.displayToImage(
-                                coordinates[i * 2].toDouble(),
-                                coordinates[i * 2 + 1].toDouble(),
-                                cameraInDisplay,
-                                visibleLens,
-                                width,
-                                height,
-                            )
-                        coordinates[i * 2] = uv.first.toFloat()
-                        coordinates[i * 2 + 1] = uv.second.toFloat()
-                    }
+                    val coordinates =
+                        CameraGeometry.previewCoordinates(
+                            cameraInDisplay,
+                            visibleLens,
+                            width,
+                            height,
+                        )
                     val transform = FloatArray(16)
                     nativeTexture!!.getTransformMatrix(transform)
                     backdrop.drawNative(coordinates, transform)
@@ -816,7 +809,7 @@ class CaptureEngine(
                         if (zoomWaitSince == 0L) zoomWaitSince = now
                         if (now - zoomWaitSince > 3_000_000_000L)
                             fail(
-                                "Android did not apply the selected ultrawide zoom. Try the direct ultrawide option in a new capture."
+                                "Android did not apply the selected ultrawide zoom. Reopen capture to retry, or start a new capture with the main camera."
                             )
                         return
                     }
